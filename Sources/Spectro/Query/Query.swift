@@ -8,7 +8,7 @@
 public struct Query: Sendable {
     var table: String
     var conditions: [String] = []
-    var selections: [String] = ["*"] // Default to select all
+    var selections: [String] = ["*"]  // Default to select all
 
     public static func from(_ table: String) -> Query {
         return Query(table: table)

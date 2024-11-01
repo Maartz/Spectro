@@ -1,9 +1,9 @@
-import PostgresKit
 import NIOCore
+import PostgresKit
 
 public struct DataRow: Sendable {
     public let values: [String: String]
-    
+
     init(values: [String: String]) {
         self.values = values
     }
@@ -18,10 +18,13 @@ public class Repo {
 
     func all(query: Query) async throws -> [DataRow] {
         try await withCheckedThrowingContinuation { continuation in
-            let future: EventLoopFuture<[DataRow]> = pools.withConnection { conn -> EventLoopFuture<[DataRow]> in
-                var sql = "SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)"
+            let future: EventLoopFuture<[DataRow]> = pools.withConnection {
+                conn -> EventLoopFuture<[DataRow]> in
+                var sql =
+                    "SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)"
                 if !query.conditions.isEmpty {
-                    sql += " WHERE " + query.conditions.joined(separator: " AND ")
+                    sql +=
+                        " WHERE " + query.conditions.joined(separator: " AND ")
                 }
 
                 return conn.sql()
@@ -31,7 +34,9 @@ public class Repo {
                         rows.map { row in
                             var dict: [String: String] = [:]
                             for column in query.selections {
-                                if let value = try? row.decode(column: column, as: String.self) {
+                                if let value = try? row.decode(
+                                    column: column, as: String.self)
+                                {
                                     dict[column] = value
                                 }
                             }
