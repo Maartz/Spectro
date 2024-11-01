@@ -5,20 +5,19 @@ import PackageDescription
 
 let package = Package(
     name: "Spectro",
+    platforms: [
+        .macOS(.v12)
+    ],
     products: [
-        // Products define the executables and libraries a package produces, making them visible to other packages.
-        .library(
-            name: "Spectro",
-            targets: ["Spectro"]),
+        .library(name: "Spectro", targets: ["Spectro"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/vapor/postgres-kit.git", from: "2.0.0")
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
-        .target(
-            name: "Spectro"),
-        .testTarget(
-            name: "SpectroTests",
-            dependencies: ["Spectro"]
-        ),
+        .target(name: "Spectro", dependencies: [
+            .product(name: "PostgresKit", package: "postgres-kit")
+        ]),
+        .testTarget(name: "SpectroTests", dependencies: ["Spectro"])
     ]
 )

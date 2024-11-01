@@ -1,6 +1,24 @@
-import Testing
+import XCTest
 @testable import Spectro
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+final class SpectroTests: XCTestCase {
+    var db: Spectro!
+    
+    override func setUp() async throws {
+        db = try Spectro(
+            hostname: "localhost",
+            username: "postgres",
+            password: "postgres",
+            database: "postgres"
+        )
+    }
+    
+    override func tearDown() async throws {
+        db.shutdown()
+    }
+    
+    func testConnection() async throws {
+        let version = try await db.test()
+        XCTAssertTrue(version.contains("PostgreSQL"))
+    }
 }
