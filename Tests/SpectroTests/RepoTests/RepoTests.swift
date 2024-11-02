@@ -119,4 +119,40 @@ final class RepoTests: XCTestCase {
         XCTAssertEqual(results[2].values["name"], "Vincent Doe")
         XCTAssertEqual(results[2].values["email"], "vincent@example.com")
     }
+    
+    func testUpdateQuery() async throws {
+        let users = [
+            ["name": "William Martin", "email": "maartz@icloud.com"],
+            ["name": "Vincent Doe", "email": "vincent@example.com"],
+            ["name": "Tyler Durden", "email": "tyler@example.com"],
+        ]
+
+        for user in users {
+            try await repo.insert(
+                into: "test_users",
+                values: user
+            )
+        }
+
+        var query = Query.from("test_users")
+            .select("name", "email")
+            .where("name LIKE '%Martin'")
+
+        var results = try await repo.all(query: query)
+        XCTAssertEqual(results.count, 1)
+        
+        try await repo.update(into: "test_users", values: ["name": "Maartz", "email": "william@auroraeditor.com"], where: ["name": "William Martin"])
+        
+        results = try await repo.all(query: query)
+        XCTAssertEqual(results.count, 0)
+        
+        query = Query.from("test_users")
+            .select("name", "email")
+            .where("name = 'Maartz'")
+        results = try await repo.all(query: query)
+        
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].values["name"], "Maartz")
+        XCTAssertEqual(results[0].values["email"], "william@auroraeditor.com")
+    }
 }

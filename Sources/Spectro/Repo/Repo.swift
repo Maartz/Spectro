@@ -83,20 +83,25 @@ public class Repo {
     }
 
     public func insert(into table: String, values: [String: Any]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
             let future: EventLoopFuture<Void> = pools.withConnection { conn in
                 do {
                     let columns = values.keys.joined(separator: ", ")
-                    let placeholders = (1...values.count).map { "$\($0)" }.joined(separator: ", ")
-                    let sql = "INSERT INTO \(table) (\(columns)) VALUES (\(placeholders))"
-                    
-                    let params = try values.values.map { try self.convertToPostgresData($0) }
+                    let placeholders = (1...values.count).map { "$\($0)" }
+                        .joined(separator: ", ")
+                    let sql =
+                        "INSERT INTO \(table) (\(columns)) VALUES (\(placeholders))"
+
+                    let params = try values.values.map {
+                        try self.convertToPostgresData($0)
+                    }
                     return conn.query(sql, params).map { _ in }
                 } catch {
                     return conn.eventLoop.makeFailedFuture(error)
                 }
             }
-            
+
             future.whenComplete { result in
                 switch result {
                 case .success:
@@ -107,4 +112,48 @@ public class Repo {
             }
         }
     }
+
+    public func update(
+        into table: String, values: [String: Any], where conditions: [String: Any]
+    ) async throws {
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
+            let future: EventLoopFuture<Void> = pools.withConnection { conn in
+                do {
+                    let setClause = values.keys.enumerated().map {
+                        "\($1) = $\($0 + 1)"
+                    }.joined(separator: ", ")
+
+                    let whereClause = conditions.keys.enumerated().map {
+                        "\($1) = $\($0 + values.count + 1)"
+                    }.joined(separator: " AND ")
+
+                    let sql =
+                        "UPDATE \(table) SET \(setClause) WHERE \(whereClause)"
+
+                    let params =
+                        try values.values.map {
+                            try self.convertToPostgresData($0)
+                        }
+                        + conditions.values.map {
+                            try self.convertToPostgresData($0)
+                        }
+
+                    return conn.query(sql, params).map { _ in }
+                } catch {
+                    return conn.eventLoop.makeFailedFuture(error)
+                }
+            }
+
+            future.whenComplete { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
 }
