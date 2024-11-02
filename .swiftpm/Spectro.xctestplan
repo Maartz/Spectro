@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "42C51C36-95E6-4961-8D46-C5AF52BE6DC1",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:",
+        "identifier" : "SpectroTests",
+        "name" : "SpectroTests"
+      }
+    }
+  ],
+  "version" : 1
+}

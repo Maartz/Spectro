@@ -1,6 +1,6 @@
 import NIOCore
 import PostgresKit
-// Tests/SpectroTests/RepoTests/RepoTests.swift
+
 import XCTest
 
 @testable import Spectro
@@ -77,5 +77,47 @@ final class RepoTests: XCTestCase {
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].values["name"], "John Doe")
         XCTAssertEqual(results[0].values["email"], "john@example.com")
+    }
+    
+    func testInsertQuery() async throws {
+        try await repo.insert(
+            into: "test_users",
+            values: ["name": "William Martin", "email": "maartz@icloud.com"]
+        )
+        
+        let query = Query.from("test_users")
+            .select("name", "email")
+            .where("name LIKE 'William%'")
+        
+        let results = try await repo.all(query: query)
+        
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].values["name"], "William Martin")
+        XCTAssertEqual(results[0].values["email"], "maartz@icloud.com")
+    }
+    
+    func testMultipleInsertsQuery() async throws {
+        let users = [
+            ["name": "William Martin", "email": "maartz@icloud.com"],
+            ["name": "Vincent Doe", "email": "vincent@example.com"],
+            ["name": "Tyler Durden", "email": "tyler@example.com"]
+        ]
+        
+        for user in users {
+            try await repo.insert(
+                into: "test_users",
+                values: user
+            )
+        }
+        
+        let query = Query.from("test_users")
+            .select("name", "email")
+            .where("name LIKE '%Doe'")
+        
+        let results = try await repo.all(query: query)
+        
+        XCTAssertEqual(results.count, 3)
+        XCTAssertEqual(results[2].values["name"], "Vincent Doe")
+        XCTAssertEqual(results[2].values["email"], "vincent@example.com")
     }
 }
