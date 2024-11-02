@@ -155,4 +155,36 @@ final class RepoTests: XCTestCase {
         XCTAssertEqual(results[0].values["name"], "Maartz")
         XCTAssertEqual(results[0].values["email"], "william@auroraeditor.com")
     }
+    
+    func testDeleteQuery() async throws {
+        let users = [
+            ["name": "William Martin", "email": "maartz@icloud.com"],
+            ["name": "Vincent Doe", "email": "vincent@example.com"],
+            ["name": "Tyler Durden", "email": "tyler@example.com"],
+        ]
+
+        for user in users {
+            try await repo.insert(
+                into: "test_users",
+                values: user
+            )
+        }
+
+        var query = Query.from("test_users")
+            .select("name", "email")
+        var results = try await repo.all(query: query)
+        XCTAssertEqual(results.count, 5) // because of the setup initial seeding
+
+        try await repo.delete(from: "test_users", where: ["name": "Tyler Durden"])
+
+        results = try await repo.all(query: query)
+        XCTAssertEqual(results.count, 4)
+        
+        query = Query.from("test_users")
+            .select("name", "email")
+            .where("name = 'Tyler Durden'")
+        results = try await repo.all(query: query)
+        XCTAssertEqual(results.count, 0)
+    }
+
 }

@@ -156,4 +156,28 @@ public class Repo {
         }
     }
 
+    public func delete(from table: String, where conditions: [String: Any]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let future: EventLoopFuture<Void> = pools.withConnection { conn in
+                do {
+                    let whereClauses = conditions.keys.enumerated().map { "\($1) = $\(String($0 + 1))" }.joined(separator: " AND ")
+                    let sql = "DELETE FROM \(table) WHERE \(whereClauses)"
+                    let params = try conditions.values.map { try self.convertToPostgresData($0) }
+                    
+                    return conn.query(sql, params).map { _ in }
+                } catch {
+                    return conn.eventLoop.makeFailedFuture(error)
+                }
+            }
+            
+            future.whenComplete { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 }
