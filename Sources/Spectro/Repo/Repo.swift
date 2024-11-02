@@ -6,6 +6,11 @@ enum DatabaseError: Error {
     case invalidDataType
 }
 
+enum RepoError: Error {
+    case invalidQueryResult
+    case unexpectedResultCount(String)
+}
+
 public struct DataRow: Sendable {
     public let values: [String: String]
 
@@ -114,7 +119,8 @@ public class Repo {
     }
 
     public func update(
-        into table: String, values: [String: Any], where conditions: [String: Any]
+        into table: String, values: [String: Any],
+        where conditions: [String: Any]
     ) async throws {
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, Error>) in
@@ -156,15 +162,63 @@ public class Repo {
         }
     }
 
-    public func delete(from table: String, where conditions: [String: Any]) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+    public func delete(from table: String, where conditions: [String: Any])
+        async throws
+    {
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
             let future: EventLoopFuture<Void> = pools.withConnection { conn in
                 do {
-                    let whereClauses = conditions.keys.enumerated().map { "\($1) = $\(String($0 + 1))" }.joined(separator: " AND ")
+                    let whereClauses = conditions.keys.enumerated().map {
+                        "\($1) = $\(String($0 + 1))"
+                    }.joined(separator: " AND ")
                     let sql = "DELETE FROM \(table) WHERE \(whereClauses)"
-                    let params = try conditions.values.map { try self.convertToPostgresData($0) }
-                    
+                    let params = try conditions.values.map {
+                        try self.convertToPostgresData($0)
+                    }
+
                     return conn.query(sql, params).map { _ in }
+                } catch {
+                    return conn.eventLoop.makeFailedFuture(error)
+                }
+            }
+
+            future.whenComplete { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    public func count(from table: String, where conditions: [String: (String, Any)] = [:]) async throws -> Int {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
+            let whereClause = conditions.keys.enumerated().map { index, key in
+                let (op, _) = conditions[key]!
+                return "\(key) \(op) $\((index + 1))"
+            }.joined(separator: " AND ")
+
+            let sql = """
+            SELECT COUNT(*) AS count FROM \(table)
+            \(conditions.isEmpty ? "" : "WHERE " + whereClause)
+            """
+            
+            let future: EventLoopFuture<Int> = pools.withConnection { conn in
+                do {
+                    let params = try conditions.values.map { try self.convertToPostgresData($0.1) }
+                    
+                    // Execute the query with parameters
+                    return conn.query(sql, params).flatMapThrowing { rows in
+                        // makeRandomAccess for faster result
+                        guard let firstRow = rows.first?.makeRandomAccess(),
+                              let count = firstRow[data:"count"].int else {
+                            throw RepoError.invalidQueryResult
+                        }
+                        return count
+                    }
                 } catch {
                     return conn.eventLoop.makeFailedFuture(error)
                 }
@@ -172,8 +226,8 @@ public class Repo {
             
             future.whenComplete { result in
                 switch result {
-                case .success:
-                    continuation.resume()
+                case .success(let count):
+                    continuation.resume(returning: count)
                 case .failure(let error):
                     continuation.resume(throwing: error)
                 }
