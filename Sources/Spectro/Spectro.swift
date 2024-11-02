@@ -1,7 +1,5 @@
 import Foundation
 import NIOCore
-// The Swift Programming Language
-// https://docs.swift.org/swift-book
 import PostgresKit
 
 public final class Spectro {
