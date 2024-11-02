@@ -6,7 +6,6 @@
 //
 
 import XCTest
-
 @testable import Spectro
 
 final class QueryTests: XCTestCase {
@@ -17,32 +16,26 @@ final class QueryTests: XCTestCase {
     }
 
     func testQueryWhereClause() {
-        let query = Query.from("users").where("age > 18")
-        XCTAssertEqual(
-            query.conditions.count, 1, "There should be one condition")
-        XCTAssertEqual(
-            query.conditions.first, "age > 18",
-            "The condition should be 'age > 18'")
+        let query = Query.from("users").where("age", ">", .int(18))
+        
+        XCTAssertEqual(query.conditions.count, 1, "There should be one condition")
+        XCTAssertEqual(query.conditions["age"]?.0, ">", "The operator should be '>' for age condition")
+        XCTAssertEqual(query.conditions["age"]?.1, .int(18), "The value should be 18 for age condition")
 
-        let queryWithMultipleConditions = query.where("is_active = true")
-        XCTAssertEqual(
-            queryWithMultipleConditions.conditions.count, 2,
-            "There should be two conditions")
-        XCTAssertEqual(
-            queryWithMultipleConditions.conditions[1], "is_active = true",
-            "The second condition should be 'is_active = true'")
+        let queryWithMultipleConditions = query.where("is_active", "=", .bool(true))
+        XCTAssertEqual(queryWithMultipleConditions.conditions.count, 2, "There should be two conditions")
+        XCTAssertEqual(queryWithMultipleConditions.conditions["is_active"]?.0, "=", "The operator should be '=' for is_active condition")
+        XCTAssertEqual(queryWithMultipleConditions.conditions["is_active"]?.1, .bool(true), "The value should be true for is_active condition")
     }
 
     func testQuerySelectClause() {
         let query = Query.from("users").select("name", "email")
-        XCTAssertEqual(
-            query.selections.count, 2, "There should be two selected columns")
-        XCTAssertEqual(
-            query.selections, ["name", "email"],
-            "Selections should be ['name', 'email']")
+        
+        XCTAssertEqual(query.selections.count, 2, "There should be two selected columns")
+        XCTAssertEqual(query.selections, ["name", "email"], "Selections should be ['name', 'email']")
 
         let defaultQuery = Query.from("users")
-        XCTAssertEqual(
-            defaultQuery.selections, ["*"], "Default selection should be '*'")
+        XCTAssertEqual(defaultQuery.selections, ["*"], "Default selection should be '*'")
     }
 }
+

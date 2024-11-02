@@ -26,54 +26,42 @@ public class Repo {
         self.pools = pools
     }
 
-    private func convertToPostgresData(_ value: Any) throws -> PostgresData {
-        switch value {
-        case let stringValue as String:
-            return PostgresData(string: stringValue)
-        case let intValue as Int:
-            return PostgresData(int64: Int64(intValue))
-        case let doubleValue as Double:
-            return PostgresData(double: doubleValue)
-        case let boolValue as Bool:
-            return PostgresData(bool: boolValue)
-        case let uuid as UUID:
-            return PostgresData(uuid: uuid)
-        case let date as Date:
-            return PostgresData(date: date)
-        case is NSNull:
-            return PostgresData(type: .text, value: nil)
-        default:
-            throw DatabaseError.invalidDataType
-        }
+    private func convertToPostgresData(_ value: ConditionValue) throws -> PostgresData {
+        return try value.toPostgresData()
     }
 
-    func all(query: Query) async throws -> [DataRow] {
+    public func all(query: Query) async throws -> [DataRow] {
         try await withCheckedThrowingContinuation { continuation in
-            let future: EventLoopFuture<[DataRow]> = pools.withConnection {
-                conn -> EventLoopFuture<[DataRow]> in
-                var sql =
-                    "SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)"
-                if !query.conditions.isEmpty {
-                    sql +=
-                        " WHERE " + query.conditions.joined(separator: " AND ")
-                }
+            let whereClause = query.conditions.keys.enumerated().map { index, key in
+                let (op, _) = query.conditions[key]!
+                return "\(key) \(op) $\((index + 1))"
+            }.joined(separator: " AND ")
 
-                return conn.sql()
-                    .raw(SQLQueryString(sql))
-                    .all()
-                    .flatMapThrowing { rows -> [DataRow] in
+            let sql = """
+            SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)
+            \(query.conditions.isEmpty ? "" : "WHERE " + whereClause)
+            """
+
+            let future: EventLoopFuture<[DataRow]> = pools.withConnection { conn in
+                do {
+                    let params = try query.conditions.values.map { try self.convertToPostgresData($0.1) }
+
+                    return conn.query(sql, params).flatMapThrowing { rows in
                         rows.map { row in
+                            // Convert row to PostgresRandomAccessRow for efficient access
+                            let randomAccessRow = row.makeRandomAccess()
                             var dict: [String: String] = [:]
                             for column in query.selections {
-                                if let value = try? row.decode(
-                                    column: column, as: String.self)
-                                {
-                                    dict[column] = value
+                                if let columnValue = randomAccessRow[data: column].string {
+                                    dict[column] = columnValue
                                 }
                             }
                             return DataRow(values: dict)
                         }
                     }
+                } catch {
+                    return conn.eventLoop.makeFailedFuture(error)
+                }
             }
 
             future.whenComplete { result in
@@ -87,20 +75,15 @@ public class Repo {
         }
     }
 
-    public func insert(into table: String, values: [String: Any]) async throws {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, Error>) in
+    public func insert(into table: String, values: [String: ConditionValue]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let future: EventLoopFuture<Void> = pools.withConnection { conn in
                 do {
                     let columns = values.keys.joined(separator: ", ")
-                    let placeholders = (1...values.count).map { "$\($0)" }
-                        .joined(separator: ", ")
-                    let sql =
-                        "INSERT INTO \(table) (\(columns)) VALUES (\(placeholders))"
+                    let placeholders = (1...values.count).map { "$\($0)" }.joined(separator: ", ")
+                    let sql = "INSERT INTO \(table) (\(columns)) VALUES (\(placeholders))"
 
-                    let params = try values.values.map {
-                        try self.convertToPostgresData($0)
-                    }
+                    let params = try values.values.map { try self.convertToPostgresData($0) }
                     return conn.query(sql, params).map { _ in }
                 } catch {
                     return conn.eventLoop.makeFailedFuture(error)
@@ -118,33 +101,20 @@ public class Repo {
         }
     }
 
-    public func update(
-        into table: String, values: [String: Any],
-        where conditions: [String: Any]
-    ) async throws {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, Error>) in
+
+    public func update(table: String, values: [String: ConditionValue], where conditions: [String: (String, ConditionValue)]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let setClause = values.keys.enumerated().map { "\($1) = $\($0 + 1)" }.joined(separator: ", ")
+            let whereClause = conditions.keys.enumerated().map { index, key in
+                let (op, _) = conditions[key]!
+                return "\(key) \(op) $\((index + values.count + 1))"
+            }.joined(separator: " AND ")
+
+            let sql = "UPDATE \(table) SET \(setClause) WHERE \(whereClause)"
+            
             let future: EventLoopFuture<Void> = pools.withConnection { conn in
                 do {
-                    let setClause = values.keys.enumerated().map {
-                        "\($1) = $\($0 + 1)"
-                    }.joined(separator: ", ")
-
-                    let whereClause = conditions.keys.enumerated().map {
-                        "\($1) = $\($0 + values.count + 1)"
-                    }.joined(separator: " AND ")
-
-                    let sql =
-                        "UPDATE \(table) SET \(setClause) WHERE \(whereClause)"
-
-                    let params =
-                        try values.values.map {
-                            try self.convertToPostgresData($0)
-                        }
-                        + conditions.values.map {
-                            try self.convertToPostgresData($0)
-                        }
-
+                    let params = try values.values.map { try self.convertToPostgresData($0)} + conditions.values.map { try self.convertToPostgresData($0.1 ) }
                     return conn.query(sql, params).map { _ in }
                 } catch {
                     return conn.eventLoop.makeFailedFuture(error)
@@ -162,21 +132,18 @@ public class Repo {
         }
     }
 
-    public func delete(from table: String, where conditions: [String: Any])
-        async throws
-    {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, Error>) in
+    public func delete(from table: String, where conditions: [String: (String, ConditionValue)]) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            let whereClause = conditions.keys.enumerated().map { index, key in
+                let (op, _) = conditions[key]!
+                return "\(key) \(op) $\((index + 1))"
+            }.joined(separator: " AND ")
+
+            let sql = "DELETE FROM \(table) WHERE \(whereClause)"
+            
             let future: EventLoopFuture<Void> = pools.withConnection { conn in
                 do {
-                    let whereClauses = conditions.keys.enumerated().map {
-                        "\($1) = $\(String($0 + 1))"
-                    }.joined(separator: " AND ")
-                    let sql = "DELETE FROM \(table) WHERE \(whereClauses)"
-                    let params = try conditions.values.map {
-                        try self.convertToPostgresData($0)
-                    }
-
+                    let params = try conditions.values.map { try self.convertToPostgresData($0.1) }
                     return conn.query(sql, params).map { _ in }
                 } catch {
                     return conn.eventLoop.makeFailedFuture(error)
@@ -194,7 +161,7 @@ public class Repo {
         }
     }
 
-    public func count(from table: String, where conditions: [String: (String, Any)] = [:]) async throws -> Int {
+    public func count(from table: String, where conditions: [String: (String, ConditionValue)] = [:]) async throws -> Int {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int, Error>) in
             let whereClause = conditions.keys.enumerated().map { index, key in
                 let (op, _) = conditions[key]!
@@ -209,12 +176,8 @@ public class Repo {
             let future: EventLoopFuture<Int> = pools.withConnection { conn in
                 do {
                     let params = try conditions.values.map { try self.convertToPostgresData($0.1) }
-                    
-                    // Execute the query with parameters
                     return conn.query(sql, params).flatMapThrowing { rows in
-                        // makeRandomAccess for faster result
-                        guard let firstRow = rows.first?.makeRandomAccess(),
-                              let count = firstRow[data:"count"].int else {
+                        guard let firstRow = rows.first?.makeRandomAccess(), let count = firstRow[data: "count"].int else {
                             throw RepoError.invalidQueryResult
                         }
                         return count
@@ -234,4 +197,5 @@ public class Repo {
             }
         }
     }
+
 }

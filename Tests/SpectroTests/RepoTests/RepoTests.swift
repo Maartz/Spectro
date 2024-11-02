@@ -69,7 +69,7 @@ final class RepoTests: XCTestCase {
     func testBasicQuery() async throws {
         let query = Query.from("test_users")
             .select("name", "email")
-            .where("name LIKE 'John%'")
+            .where("name", "LIKE", .string("John%"))
         
         let results = try await repo.all(query: query)
         
@@ -77,16 +77,16 @@ final class RepoTests: XCTestCase {
         XCTAssertEqual(results[0].values["name"], "John Doe")
         XCTAssertEqual(results[0].values["email"], "john@example.com")
     }
-    
+
     func testInsertQuery() async throws {
         try await repo.insert(
             into: "test_users",
-            values: ["name": "William Martin", "email": "maartz@icloud.com"]
+            values: ["name": .string("William Martin"), "email": .string("maartz@icloud.com")]
         )
-        
+
         let query = Query.from("test_users")
             .select("name", "email")
-            .where("name LIKE 'William%'")
+            .where("name", "LIKE", .string("William%"))
         
         let results = try await repo.all(query: query)
         
@@ -94,12 +94,12 @@ final class RepoTests: XCTestCase {
         XCTAssertEqual(results[0].values["name"], "William Martin")
         XCTAssertEqual(results[0].values["email"], "maartz@icloud.com")
     }
-    
+
     func testMultipleInsertsQuery() async throws {
-        let users = [
-            ["name": "William Martin", "email": "maartz@icloud.com"],
-            ["name": "Vincent Doe", "email": "vincent@example.com"],
-            ["name": "Tyler Durden", "email": "tyler@example.com"],
+        let users : [[String: ConditionValue]] = [
+            ["name": .string("William Martin"), "email": .string("maartz@icloud.com")],
+            ["name": .string("Vincent Doe"), "email": .string("vincent@example.com")],
+            ["name": .string("Tyler Durden"), "email": .string("tyler@example.com")],
         ]
         
         for user in users {
@@ -111,7 +111,7 @@ final class RepoTests: XCTestCase {
         
         let query = Query.from("test_users")
             .select("name", "email")
-            .where("name LIKE '%Doe'")
+            .where("name", "LIKE", .string("%Doe"))
         
         let results = try await repo.all(query: query)
         
@@ -119,12 +119,12 @@ final class RepoTests: XCTestCase {
         XCTAssertEqual(results[2].values["name"], "Vincent Doe")
         XCTAssertEqual(results[2].values["email"], "vincent@example.com")
     }
-    
+
     func testUpdateQuery() async throws {
-        let users = [
-            ["name": "William Martin", "email": "maartz@icloud.com"],
-            ["name": "Vincent Doe", "email": "vincent@example.com"],
-            ["name": "Tyler Durden", "email": "tyler@example.com"],
+        let users: [[String: ConditionValue]] = [
+            ["name": .string("William Martin"), "email": .string("maartz@icloud.com")],
+            ["name": .string("Vincent Doe"), "email": .string("vincent@example.com")],
+            ["name": .string("Tyler Durden"), "email": .string("tyler@example.com")],
         ]
         
         for user in users {
@@ -136,31 +136,37 @@ final class RepoTests: XCTestCase {
         
         var query = Query.from("test_users")
             .select("name", "email")
-            .where("name LIKE '%Martin'")
+            .where("name", "LIKE", .string("%Martin"))
         
         var results = try await repo.all(query: query)
         XCTAssertEqual(results.count, 1)
         
-        try await repo.update(into: "test_users", values: ["name": "Maartz", "email": "william@auroraeditor.com"], where: ["name": "William Martin"])
+        // Updated values dictionary to use ConditionValue types
+        try await repo.update(
+            table: "test_users",
+            values: ["name": .string("Maartz"), "email": .string("william@auroraeditor.com")],
+            where: ["name": ("=", .string("William Martin"))]
+        )
         
         results = try await repo.all(query: query)
         XCTAssertEqual(results.count, 0)
         
         query = Query.from("test_users")
             .select("name", "email")
-            .where("name = 'Maartz'")
+            .where("name", "=", .string("Maartz"))
         results = try await repo.all(query: query)
         
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].values["name"], "Maartz")
         XCTAssertEqual(results[0].values["email"], "william@auroraeditor.com")
     }
-    
+
+
     func testDeleteQuery() async throws {
-        let users = [
-            ["name": "William Martin", "email": "maartz@icloud.com"],
-            ["name": "Vincent Doe", "email": "vincent@example.com"],
-            ["name": "Tyler Durden", "email": "tyler@example.com"],
+        let users : [[String: ConditionValue]] = [
+            ["name": .string("William Martin"), "email": .string("maartz@icloud.com")],
+            ["name": .string("Vincent Doe"), "email": .string("vincent@example.com")],
+            ["name": .string("Tyler Durden"), "email": .string("tyler@example.com")],
         ]
         
         for user in users {
@@ -175,26 +181,26 @@ final class RepoTests: XCTestCase {
         var results = try await repo.all(query: query)
         XCTAssertEqual(results.count, 5) // because of the setup initial seeding
         
-        try await repo.delete(from: "test_users", where: ["name": "Tyler Durden"])
+        try await repo.delete(from: "test_users", where: ["name": ("=", .string("Tyler Durden"))])
         
         results = try await repo.all(query: query)
         XCTAssertEqual(results.count, 4)
         
         query = Query.from("test_users")
             .select("name", "email")
-            .where("name = 'Tyler Durden'")
+            .where("name", "=", .string("Tyler Durden"))
         results = try await repo.all(query: query)
         XCTAssertEqual(results.count, 0)
     }
    
     func testRepoCount() async throws {
-        var count = try await repo.count(from: "test_users", where: ["name": ("LIKE", "%Doe")])
+        var count = try await repo.count(from: "test_users", where: ["name": ("LIKE", .string("%Doe"))])
         XCTAssertEqual(count, 2)
         
-        let users = [
-            ["name": "William Martin", "email": "maartz@icloud.com"],
-            ["name": "Vincent Doe", "email": "vincent@example.com"],
-            ["name": "Tyler Durden", "email": "tyler@example.com"],
+        let users : [[String: ConditionValue]] = [
+            ["name": .string("William Martin"), "email": .string("maartz@icloud.com")],
+            ["name": .string("Vincent Doe"), "email": .string("vincent@example.com")],
+            ["name": .string("Tyler Durden"), "email": .string("tyler@example.com")],
         ]
         
         for user in users {
@@ -203,7 +209,7 @@ final class RepoTests: XCTestCase {
                 values: user
             )
         }
-        count = try await repo.count(from: "test_users", where: ["email": ("LIKE", "%example.com")])
+        count = try await repo.count(from: "test_users", where: ["email": ("LIKE", .string("%example.com"))])
         XCTAssertEqual(count, 4)
     }
 }

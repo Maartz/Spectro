@@ -6,23 +6,26 @@
 //
 
 public struct Query: Sendable {
+    
     var table: String
-    var conditions: [String] = []
-    var selections: [String] = ["*"]  // Default to select all
+    var conditions: [String: (String, ConditionValue)] = [:]
+    var selections: [String] = ["*"]
 
-    public static func from(_ table: String) -> Query {
+    static func from(_ table: String) -> Query {
         return Query(table: table)
     }
 
-    public func `where`(_ condition: String) -> Query {
+    func `where`(_ field: String, _ op: String, _ value: ConditionValue) -> Query {
         var copy = self
-        copy.conditions.append(condition)
+        copy.conditions[field] = (op, value)
         return copy
     }
 
-    public func select(_ columns: String...) -> Query {
+    func select(_ columns: String...) -> Query {
         var copy = self
         copy.selections = columns
         return copy
     }
 }
+
+
