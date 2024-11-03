@@ -15,6 +15,8 @@ public enum ConditionValue: Sendable, Equatable {
     case bool(Bool)
     case uuid(UUID)
     case date(Date)
+    case null
+    case jsonb(String)
     
     func toPostgresData() throws -> PostgresData {
         switch self {
@@ -30,6 +32,44 @@ public enum ConditionValue: Sendable, Equatable {
             return PostgresData(uuid: value)
         case .date(let value):
             return PostgresData(date: value)
+        case .jsonb(let value):
+            return try PostgresData(jsonb: value)
+        case .null:
+            return PostgresData(type: .null, value: nil)
         }
+    }
+}
+
+extension ConditionValue: ExpressibleByStringLiteral {
+    public init(stringLiteral value: String) {
+        if value.hasPrefix("{") {
+            self = .jsonb(value)
+        } else {
+            self = .string(value)
+        }
+    }
+}
+
+extension ConditionValue: ExpressibleByIntegerLiteral {
+    public init(integerLiteral value: Int) {
+        self = .int(value)
+    }
+}
+
+extension ConditionValue: ExpressibleByFloatLiteral {
+    public init(floatLiteral value: Double) {
+        self = .double(value)
+    }
+}
+
+extension ConditionValue: ExpressibleByBooleanLiteral {
+    public init(booleanLiteral value: Bool) {
+        self = .bool(value)
+    }
+}
+
+extension ConditionValue: ExpressibleByNilLiteral {
+    public init(nilLiteral: ()) {
+        self = .null
     }
 }

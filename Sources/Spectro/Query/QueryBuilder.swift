@@ -12,16 +12,28 @@ struct SQLBuilder {
     static func buildWhereClause(
         _ conditions: [String: (String, ConditionValue)]
     ) -> (clause: String, params: [PostgresData]) {
-        let whereClause = conditions.keys.enumerated().map { index, key in
-            let (op, _) = conditions[key]!
-            return "\(key) \(op) $\((index + 1))"
-        }.joined(separator: " AND ")
+        var clauseParts: [String] = []
+        var params: [PostgresData] = []
 
-        let params = try! conditions.values.map {
-            try $0.1.toPostgresData()
+        for (index, (column, (op, value))) in conditions.enumerated() {
+            switch value {
+            case .null:
+                if op == "=" || op.uppercased() == "IS" {
+                    clauseParts.append("\(column) IS NULL")
+                } else if op == "!=" || op.uppercased() == "IS NOT" {
+                    clauseParts.append("\(column) IS NOT NULL")
+                } else {
+                    fatalError("Unsupported operator \(op) for NULL value.")
+                }
+            default:
+                clauseParts.append("\(column) \(op) $\((index + 1))")
+                params.append(try! value.toPostgresData())
+            }
         }
-        return (clause: whereClause, params: params)
+
+        return (clause: clauseParts.joined(separator: " AND "), params: params)
     }
+
     
     static func buildInsert(table: String, values: [String: ConditionValue]) -> (sql: String, params: [PostgresData]) {
         let columns = values.keys.joined(separator: ", ")
