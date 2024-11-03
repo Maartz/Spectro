@@ -2,24 +2,7 @@ import Foundation
 import NIOCore
 import PostgresKit
 
-enum DatabaseError: Error {
-    case invalidDataType
-}
-
-enum RepoError: Error {
-    case invalidQueryResult
-    case unexpectedResultCount(String)
-}
-
-public struct DataRow: Sendable {
-    public let values: [String: String]
-
-    init(values: [String: String]) {
-        self.values = values
-    }
-}
-
-public class Repo {
+public class BaseRepository {
     private let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
 
     public init(pools: EventLoopGroupConnectionPool<PostgresConnectionSource>) {
@@ -201,7 +184,7 @@ public class Repo {
         ) { row in
             let randomAccessRow = row.makeRandomAccess()
             guard let count = randomAccessRow[data: "count"].int else {
-                throw RepoError.invalidQueryResult
+                throw RepositoryError.invalidQueryResult
             }
             return count
         }
