@@ -13,7 +13,13 @@ public final class PostgresRepository: Repository {
     public init(pools: EventLoopGroupConnectionPool<PostgresConnectionSource>) {
         self.db = PostgresDatabaseOperations(pools: pools)
     }
-    
+   
+    // This one takes a Query, I'd like to make the rest look like this in the DX.
+    // As insert expects you to provide everything whereas I want to
+    // let query = Query(from f in Foo)
+    // insert(query: query) for example
+    // at a given point we should reflect Schema to build the queries such as
+    // get_by_* where * is a field of the schema
     public func all(query: Query) async throws -> [DataRow] {
         let whereClause = SQLBuilder.buildWhereClause(query.conditions)
         let sql = """
@@ -87,4 +93,64 @@ public final class PostgresRepository: Repository {
         }
         return rows.first ?? 0
     }
+    
+    public func get(
+        from table: String,
+        selecting columns: [String],
+        where conditions: [String: (String, ConditionValue)]
+    ) async throws -> DataRow? {
+        let whereClause = SQLBuilder.buildWhereClause(conditions)
+        let sql = """
+            SELECT \(columns.joined(separator: ", ")) FROM \(table)
+            \(conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
+            LIMIT 1
+            """
+        
+        let results: [DataRow] = try await db.executeQuery(sql: sql, params: whereClause.params) { row in
+            let randomAccessRow = row.makeRandomAccess()
+            var dict: [String: String] = [:]
+            for column in columns {
+                if let columnValue = randomAccessRow[data: column].string {
+                    dict[column] = columnValue
+                }
+            }
+            return DataRow(values: dict)
+        }
+        
+        return results.first
+    }
+    
+    public func one(
+            from table: String,
+            selecting columns: [String],
+            where conditions: [String: (String, ConditionValue)]
+        ) async throws -> DataRow {
+            let whereClause = SQLBuilder.buildWhereClause(conditions)
+            let sql = """
+                SELECT \(columns.joined(separator: ", ")) FROM \(table)
+                \(conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
+                LIMIT 2
+                """
+            
+            let results = try await db.executeQuery(sql: sql, params: whereClause.params) { row in
+                let randomAccessRow = row.makeRandomAccess()
+                var dict: [String: String] = [:]
+                for column in columns {
+                    if let columnValue = randomAccessRow[data: column].string {
+                        dict[column] = columnValue
+                    }
+                }
+                return DataRow(values: dict)
+            }
+            
+            guard results.count <= 1 else {
+                throw RepositoryError.unexpectedResultCount("Expected 1 result, got \(results.count)")
+            }
+            
+            guard let result = results.first else {
+                throw RepositoryError.unexpectedResultCount("Expected 1 result, got 0")
+            }
+            
+            return result
+        }
 }

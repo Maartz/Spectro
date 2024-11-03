@@ -166,4 +166,49 @@ final class PostgresRepositoryTests: XCTestCase {
         )
         XCTAssertEqual(finalCount, 3)
     }
+    
+    func testGetQuery() async throws {
+        let table = "test_users"
+        let columns = ["name", "email"]
+        let conditions: [String: (String, ConditionValue)] = [
+            "name": ("=", .string("John Doe"))
+        ]
+
+        let result = try await repository.get(from: table, selecting: columns, where: conditions)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.values["name"], "John Doe")
+        XCTAssertEqual(result?.values["email"], "john@example.com")
+    }
+
+    func testOneQuery() async throws {
+        let table = "test_users"
+        let columns = ["name", "email"]
+        let conditions: [String: (String, ConditionValue)] = [
+            "name": ("=", .string("John Doe"))
+        ]
+        
+        let result = try await repository.one(
+            from: table,
+            selecting: columns,
+            where: conditions
+        )
+        
+        XCTAssertEqual(result.values["name"], "John Doe")
+        XCTAssertEqual(result.values["email"], "john@example.com")
+        
+        do {
+            _ = try await repository.one(
+                from: table,
+                selecting: columns,
+                where: ["name": ("LIKE", .string("%Doe"))]
+            )
+            XCTFail("Expected error to be thrown")
+        } catch {
+            guard let repoError = error as? RepositoryError,
+                  case .unexpectedResultCount = repoError else {
+                XCTFail("Expected unexpectedResultCount error, got \(error)")
+                return
+            }
+        }
+    }
 }

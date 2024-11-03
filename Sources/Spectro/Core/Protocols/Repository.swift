@@ -11,4 +11,6 @@ public protocol Repository {
     func update(table: String, values: [String: ConditionValue], where conditions: [String: (String, ConditionValue)]) async throws
     func delete(from table: String, where conditions: [String: (String, ConditionValue)]) async throws
     func count(from table: String, where conditions: [String: (String, ConditionValue)]) async throws -> Int
+    func get(from table: String, selecting columns: [String], where conditions: [String: (String, ConditionValue)]) async throws -> DataRow?
+    func one(from table: String, selecting columns: [String], where conditions: [String: (String, ConditionValue)]) async throws -> DataRow
 }
