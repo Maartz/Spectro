@@ -9,11 +9,19 @@ import Foundation
 
 @resultBuilder
 public struct SchemaBuilder {
-    public static func buildBlock(_ fields: SField...) -> [SField] {
-        fields
+    public static func buildBlock(_ components: SField...) -> [SField] {
+        components
     }
 
-    public static func Field(_ name: String, _ type: FieldType, isRedacted: Bool = false) -> SField {
+    public static func buildExpression(_ field: SField) -> SField {
+        field
+    }
+}
+
+public enum Field {
+    public static func create(
+        _ name: String, _ type: FieldType, isRedacted: Bool = false
+    ) -> SField {
         SField(name: name, type: type, isRedacted: isRedacted)
     }
 }

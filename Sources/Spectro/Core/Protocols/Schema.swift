@@ -11,7 +11,7 @@ import Foundation
 public protocol Schema {
     static var schemaName: String { get }
     static var fields: [SField] { get }
-
+    
     static subscript(dynamicMember member: String) -> SField? { get }
 }
 

@@ -8,7 +8,7 @@
 import Foundation
 import PostgresKit
 
-public enum ConditionValue: Sendable, Equatable {
+public enum ConditionValue: Sendable, Equatable, Encodable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -17,7 +17,31 @@ public enum ConditionValue: Sendable, Equatable {
     case date(Date)
     case null
     case jsonb(String)
-    
+
+    public static func value(_ value: Any) -> ConditionValue {
+        switch value {
+        case let string as String:
+            if string.hasPrefix("{") {
+                return .jsonb(string)
+            }
+            return .string(string)
+        case let int as Int:
+            return .int(int)
+        case let double as Double:
+            return .double(double)
+        case let bool as Bool:
+            return .bool(bool)
+        case let uuid as UUID:
+            return .uuid(uuid)
+        case let date as Date:
+            return .date(date)
+        case is NSNull:
+            return .null
+        default:
+            return .string(String(describing: value))
+        }
+    }
+
     func toPostgresData() throws -> PostgresData {
         switch self {
         case .string(let value):
@@ -39,7 +63,6 @@ public enum ConditionValue: Sendable, Equatable {
         }
     }
 }
-
 extension ConditionValue: ExpressibleByStringLiteral {
     public init(stringLiteral value: String) {
         if value.hasPrefix("{") {

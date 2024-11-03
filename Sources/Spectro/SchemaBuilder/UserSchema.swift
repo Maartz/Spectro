@@ -8,9 +8,10 @@
 struct UserSchema: Schema {
     static let schemaName = "users"
 
-    @SchemaBuilder static var fields: [SField] {
-        SchemaBuilder.Field("name", .string)
-        SchemaBuilder.Field("age", .integer(default: 0))
-        SchemaBuilder.Field("password", .string, isRedacted: true)
+    @SchemaBuilder
+    static var fields: [SField] {
+        Field.create("name", .string)
+        Field.create("age", .integer(defaultValue: 0))
+        Field.create("password", .string, isRedacted: true)
     }
 }
