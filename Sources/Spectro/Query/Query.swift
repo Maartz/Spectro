@@ -28,9 +28,9 @@ public struct Query: Sendable {
         return copy
     }
 
-    func select(_ columns: String...) -> Query {
+    func select(_ columns: () -> [String]) -> Query {
         var copy = self
-        copy.selections = columns
+        copy.selections = columns()
         return copy
     }
     
