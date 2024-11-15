@@ -26,7 +26,8 @@ struct SQLBuilder {
                     fatalError("Unsupported operator \(op) for NULL value.")
                 }
             case .between(let start, let end):
-                clauseParts.append("\(column) BETWEEN $\(index + 1) AND $\(index + 2)")
+                clauseParts.append(
+                    "\(column) BETWEEN $\(index + 1) AND $\(index + 2)")
                 params.append(try! start.toPostgresData())
                 params.append(try! end.toPostgresData())
             default:
@@ -36,6 +37,24 @@ struct SQLBuilder {
         }
 
         return (clause: clauseParts.joined(separator: " AND "), params: params)
+    }
+
+    static func buildWhereClause(_ condition: CompositeCondition) -> (
+        clause: String, params: [PostgresData]
+    ) {
+        var params: [PostgresData] = []
+        let clauses = condition.conditions.enumerated().map {
+            index, cond -> String in
+            let param = try! cond.value.toPostgresData()
+            params.append(param)
+            return "\(cond.field) \(cond.op) $\(index + 1)"
+        }
+
+        let joinOperator = condition.type == .and ? " AND " : " OR "
+        return (
+            clause: clauses.joined(separator: joinOperator),
+            params: params
+        )
     }
 
     static func buildInsert(table: String, values: [String: ConditionValue])

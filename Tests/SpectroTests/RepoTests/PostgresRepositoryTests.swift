@@ -382,16 +382,78 @@ final class PostgresRepositoryTests: XCTestCase {
             query: query
         )
 
-        debugPrint(query)
         XCTAssertEqual(midAgeUsers.count, 4)
 
         query = Query.from(UserSchema.self)
             .select { [$0.name] }
             .where { $0.name.contains("User") }
-        
+
         let containsTest = try await repository.all(
             query: query
         )
         XCTAssertEqual(containsTest.count, 2)
+    }
+
+    func testAndConditions() async throws {
+        // Setup test data
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Test User 1",
+                "email": "test1@example.com",
+                "age": 25,
+                "score": 85.5,
+                "is_active": true,
+            ]))
+
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Test User 2",
+                "email": "test2@example.com",
+                "age": 30,
+                "score": 92.5,
+                "is_active": true,
+            ]))
+
+        let query = Query.from(UserSchema.self)
+            .select { [$0.name, $0.age, $0.score] }
+            .where {
+                $0.age > 20 && $0.score > 90 && $0.is_active == true
+            }
+
+        let results = try await repository.all(query: query)
+        XCTAssertEqual(results.count, 4)
+        XCTAssertEqual(results[3].values["name"], "Test User 2")
+    }
+
+    func testOrConditions() async throws {
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Young Active",
+                "email": "test1@example.com",
+                "age": 20,
+                "is_active": true,
+            ]))
+
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Old Inactive",
+                "email": "test2@example.com",
+                "age": 50,
+                "is_active": false,
+            ]))
+
+        let query = Query.from(UserSchema.self)
+            .select { [$0.name] }
+            .where {
+                $0.age < 25 || $0.is_active == true
+            }
+
+        let results = try await repository.all(query: query)
+        XCTAssertEqual(results.count, 4)
+        XCTAssertEqual(results[2].values["name"], "Young Active")
     }
 }

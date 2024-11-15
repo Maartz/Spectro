@@ -20,13 +20,21 @@ public struct Query: Sendable {
         return Query(table: schema.schemaName, schema: schema)
     }
 
-    func `where`(_ builder: (FieldSelector) -> QueryCondition) -> Query {
-        var copy = self
-        let selector = FieldSelector(schema: schema)
-        let condition = builder(selector)
-        copy.conditions[condition.field] = (condition.op, condition.value)
-        return copy
-    }
+    func `where`(_ builder: (FieldSelector) -> Condition) -> Query {
+            var copy = self
+            let selector = FieldSelector(schema: schema)
+            let condition = builder(selector)
+            
+            switch condition {
+            case let simple as QueryCondition:
+                copy.conditions[simple.field] = (simple.op, simple.value)
+            case let composite as CompositeCondition:
+                _ = SQLBuilder.buildWhereClause(composite)
+            default:
+                fatalError("Unexpected condition type")
+            }
+            return copy
+        }
 
     func select(_ columns: (FieldSelector) -> [FieldPredicate]) -> Query {
         var copy = self
