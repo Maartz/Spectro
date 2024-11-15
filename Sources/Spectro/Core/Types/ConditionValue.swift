@@ -99,3 +99,4 @@ extension ConditionValue: ExpressibleByNilLiteral {
         self = .null
     }
 }
+
