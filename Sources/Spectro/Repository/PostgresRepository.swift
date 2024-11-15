@@ -186,4 +186,3 @@ public final class PostgresRepository: Repository {
         try await db.executeUpdate(sql: sql, params: params)
     }
 }
-#endif
