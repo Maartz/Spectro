@@ -42,19 +42,7 @@ struct SQLBuilder {
     static func buildWhereClause(_ condition: CompositeCondition) -> (
         clause: String, params: [PostgresData]
     ) {
-        var params: [PostgresData] = []
-        let clauses = condition.conditions.enumerated().map {
-            index, cond -> String in
-            let param = try! cond.value.toPostgresData()
-            params.append(param)
-            return "\(cond.field) \(cond.op) $\(index + 1)"
-        }
-
-        let joinOperator = condition.type == .and ? " AND " : " OR "
-        return (
-            clause: clauses.joined(separator: joinOperator),
-            params: params
-        )
+        condition.toSQL(parameterOffset: 0)
     }
 
     static func buildInsert(table: String, values: [String: ConditionValue])
