@@ -13,10 +13,10 @@ public struct FieldSelector {
         self.schema = schema
     }
     
-    subscript(dynamicMember field: String) -> String {
-        guard schema[dynamicMember: field] != nil else {
+    subscript(dynamicMember field: String) -> FieldPredicate {
+        guard let schemaField = schema[dynamicMember: field] else {
             fatalError("Field '\(field)' does not exist in schema \(schema.schemaName)")
         }
-        return field
+        return FieldPredicate(name: field, type: schemaField.type)
     }
 }
