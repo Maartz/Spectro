@@ -6,16 +6,23 @@
 //
 
 public struct Query: Sendable {
-    
-    var table: String
+    let table: String
+    let schema: Schema.Type
     var conditions: [String: (String, ConditionValue)] = [:]
     var selections: [String] = ["*"]
 
-    static func from(_ table: String) -> Query {
-        return Query(table: table)
+    private init(table: String, schema: Schema.Type) {
+        self.table = table
+        self.schema = schema
     }
 
-    func `where`(_ field: String, _ op: String, _ value: ConditionValue) -> Query {
+    static func from(_ schema: any Schema.Type) -> Query {
+        return Query(table: schema.schemaName, schema: schema)
+    }
+
+    func `where`(_ field: String, _ op: String, _ value: ConditionValue)
+        -> Query
+    {
         var copy = self
         copy.conditions[field] = (op, value)
         return copy
@@ -26,6 +33,13 @@ public struct Query: Sendable {
         copy.selections = columns
         return copy
     }
+    
+    func debugSQL() -> String {
+        let whereClause = SQLBuilder.buildWhereClause(conditions)
+        return """
+            SELECT \(selections.joined(separator: ", ")) 
+            FROM \(table)
+            \(conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
+            """
+    }
 }
-
-

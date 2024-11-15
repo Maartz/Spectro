@@ -77,7 +77,7 @@ public class BaseRepository {
     public func all(query: Query) async throws -> [DataRow] {
         let whereClause = buildWhereClause(query.conditions)
         let sql = """
-            SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)
+            SELECT \(query.selections.joined(separator: ", ")) FROM \(query)
             \(query.conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
             """
 

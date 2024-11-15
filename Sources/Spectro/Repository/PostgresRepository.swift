@@ -27,8 +27,7 @@ public final class PostgresRepository: Repository {
             \(query.conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
             """
 
-        return try await db.executeQuery(sql: sql, params: whereClause.params) {
-            row in
+        return try await db.executeQuery(sql: sql, params: whereClause.params) { row in
             let randomAccessRow = row.makeRandomAccess()
             var dict: [String: String] = [:]
             for column in query.selections {
