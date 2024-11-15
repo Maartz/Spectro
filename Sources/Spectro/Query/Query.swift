@@ -10,6 +10,7 @@ public struct Query: Sendable {
     let schema: Schema.Type
     var conditions: [String: (String, ConditionValue)] = [:]
     var selections: [String] = ["*"]
+    var orderBy: [OrderByField] = []
 
     private init(table: String, schema: Schema.Type) {
         self.table = table
@@ -43,19 +44,24 @@ public struct Query: Sendable {
         return copy
     }
     
-    func orderBy(_ columns: (FieldSelector) -> [FieldPredicate]) -> Query {
-        var copy = self
-        let selector = FieldSelector(schema: schema)
-        copy.selections.append(contentsOf: columns(selector).map(\.fieldName))
-        return copy
-    }
+    func orderBy(_ builder: (FieldSelector) -> [OrderByField]) -> Query {
+            var copy = self
+            let selector = FieldSelector(schema: schema)
+            copy.orderBy = builder(selector)
+            return copy
+        }
 
     func debugSQL() -> String {
         let whereClause = SQLBuilder.buildWhereClause(conditions)
+        let orderClause = orderBy.isEmpty ? "" :
+            " ORDER BY " + orderBy.map { "\($0.field) \($0.direction.sql)" }
+                .joined(separator: ", ")
+        
         return """
-            SELECT \(selections.joined(separator: ", ")) 
+            SELECT \(selections.joined(separator: ", "))
             FROM \(table)
             \(conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
+            \(orderClause)
             """
     }
 }
