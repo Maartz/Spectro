@@ -43,7 +43,7 @@ final class TestDatabase {
                 .raw(
                     SQLQueryString(
                         """
-                            CREATE TABLE IF NOT EXISTS test_users (
+                            CREATE TABLE IF NOT EXISTS users (
                                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                                 name TEXT NOT NULL,
                                 email TEXT NOT NULL,
@@ -65,7 +65,7 @@ final class TestDatabase {
                         .raw(
                             SQLQueryString(
                                 """
-                                    INSERT INTO test_users (
+                                    INSERT INTO users (
                                         id, name, email, age, score, 
                                         is_active, created_at, login_count
                                     ) VALUES 
@@ -99,7 +99,7 @@ final class TestDatabase {
     func tearDownTestTable() async throws {
         try await pools.withConnection { conn -> EventLoopFuture<Void> in
             conn.sql()
-                .raw(SQLQueryString("DROP TABLE IF EXISTS test_users"))
+                .raw(SQLQueryString("DROP TABLE IF EXISTS users"))
                 .run()
         }.get()
     }

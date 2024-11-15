@@ -27,7 +27,7 @@ final class PostgresRepositoryTests: XCTestCase {
     }
     
     func testBasicQuery() async throws {
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("name", "email")
             .where("name", "LIKE", "John%")
         
@@ -40,14 +40,14 @@ final class PostgresRepositoryTests: XCTestCase {
     
     func testInsertQuery() async throws {
         try await repository.insert(
-            into: "test_users",
+            into: "users",
             values: [
                 "name": "William Martin",
                 "email": "maartz@icloud.com"
             ]
         )
         
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("name", "email")
             .where("name", "LIKE", "William%")
         
@@ -75,10 +75,10 @@ final class PostgresRepositoryTests: XCTestCase {
         ]
         
         for user in users {
-            try await repository.insert(into: "test_users", values: user)
+            try await repository.insert(into: "users", values: user)
         }
         
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("name", "email")
             .where("name", "LIKE", "%Doe")
         
@@ -91,7 +91,7 @@ final class PostgresRepositoryTests: XCTestCase {
     
     func testUpdateQuery() async throws {
         try await repository.insert(
-            into: "test_users",
+            into: "users",
             values: [
                 "name": "William Martin",
                 "email": "maartz@icloud.com"
@@ -99,7 +99,7 @@ final class PostgresRepositoryTests: XCTestCase {
         )
         
         try await repository.update(
-            table: "test_users",
+            table: "users",
             values: [
                 "name": "Maartz",
                 "email": "william@auroraeditor.com"
@@ -107,7 +107,7 @@ final class PostgresRepositoryTests: XCTestCase {
             where: ["email": ("=", "maartz@icloud.com")]
         )
         
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("name", "email")
             .where("name", "=", "Maartz")
         
@@ -120,41 +120,43 @@ final class PostgresRepositoryTests: XCTestCase {
     
     func testDeleteQuery() async throws {
         try await repository.insert(
-            into: "test_users",
+            into: "users",
             values: [
                 "name": "Tyler Durden",
                 "email": "tyler@example.com"
             ]
         )
         
-        let initialCount = try await repository.count(from: "test_users")
+        let initialCount = try await repository.count(from: "users")
         XCTAssertEqual(initialCount, 3) // 2 from setup + 1 inserted
         
         try await repository.delete(
-            from: "test_users",
+            from: "users",
             where: ["name": ("=", "Tyler Durden")]
         )
         
-        let finalCount = try await repository.count(from: "test_users")
+        let finalCount = try await repository.count(from: "users")
         XCTAssertEqual(finalCount, 2)
         
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("name", "email")
             .where("name", "=", "Tyler Durden")
         
+        debugPrint("SQL:", query.debugSQL())
+
         let results = try await repository.all(query: query)
         XCTAssertEqual(results.count, 0)
     }
     
     func testRepoCount() async throws {
         let initialCount = try await repository.count(
-            from: "test_users",
+            from: "users",
             where: ["name": ("LIKE", "%Doe")]
         )
         XCTAssertEqual(initialCount, 2)
         
         try await repository.insert(
-            into: "test_users",
+            into: "users",
             values: [
                 "name": "Vincent Doe",
                 "email": "vincent@example.com"
@@ -162,14 +164,14 @@ final class PostgresRepositoryTests: XCTestCase {
         )
         
         let finalCount = try await repository.count(
-            from: "test_users",
+            from: "users",
             where: ["name": ("LIKE", "%Doe")]
         )
         XCTAssertEqual(finalCount, 3)
     }
     
     func testGetQuery() async throws {
-        let table = "test_users"
+        let table = "users"
         let columns = ["name", "email"]
         let conditions: [String: (String, ConditionValue)] = [
             "name": ("=", "John Doe")
@@ -182,7 +184,7 @@ final class PostgresRepositoryTests: XCTestCase {
     }
 
     func testOneQuery() async throws {
-        let table = "test_users"
+        let table = "users"
         let columns = ["name", "email"]
         let conditions: [String: (String, ConditionValue)] = [
             "name": ("=", "John Doe")
@@ -218,7 +220,7 @@ final class PostgresRepositoryTests: XCTestCase {
         let now = Date.now
         
         try await repository.insert(
-            into: "test_users",
+            into: "users",
             values: .with([
                 "id": userId,
                 "name": "William Martin",
@@ -232,7 +234,7 @@ final class PostgresRepositoryTests: XCTestCase {
             ])
         )
         
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("name", "email", "age", "score", "is_active", "login_count")
             .where("age", ">", 25)
             .where("score", ">=", 90.0)
@@ -242,7 +244,7 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(results.count, 2)
         
         try await repository.update(
-            table: "test_users",
+            table: "users",
             values: .with([
                 "score": 98.0,
                 "login_count": 1,
@@ -255,7 +257,7 @@ final class PostgresRepositoryTests: XCTestCase {
         )
         
         let updated = try await repository.one(
-            from: "test_users",
+            from: "users",
             selecting: ["score", "login_count", "last_login_at", "updated_at"],
             where: .conditions(["id": ("=", userId)])
         )
@@ -264,13 +266,13 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(Int(updated.values["login_count"] ?? "0"), 1)
         
         try await repository.update(
-            table: "test_users",
+            table: "users",
             values: .with(["deleted_at": now]),
             where: .conditions(["id": ("=", userId)])
         )
         
         let deletedUser = try await repository.get(
-            from: "test_users",
+            from: "users",
             selecting: ["name", "deleted_at"],
             where: .conditions(["id": ("=", userId)])
         )
@@ -283,7 +285,7 @@ final class PostgresRepositoryTests: XCTestCase {
         let userId = UUID()
         
         try await repository.insert(
-            into: "test_users",
+            into: "users",
             values: .with([
                 "id": userId,
                 "name": "Test User",
@@ -291,7 +293,7 @@ final class PostgresRepositoryTests: XCTestCase {
             ])
         )
         
-        let query = Query.from("test_users")
+        let query = Query.from(UserSchema.self)
             .select("id", "name", "age")
             .where("age", "IS", .null)
         

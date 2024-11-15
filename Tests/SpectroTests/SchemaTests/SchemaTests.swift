@@ -38,11 +38,11 @@ final class SchemaTests: XCTestCase {
     // TODO: would be great to be able to pass an Array of params to Query.select
     // .select(UserSchema.fields.map { $0.name })
     func testSchemaToQueryTranslation() throws {
-        let query = Query.from(UserSchema.schemaName)
+        let query = Query.from(UserSchema.self)
             .select("name", "age", "password")
             .where("name", "=", "John Doe")
 
-        XCTAssertEqual(query.table, "users", "Expected query table 'users'")
+        XCTAssertEqual(query.schema.schemaName, "users", "Expected query table 'users'")
         XCTAssertEqual(query.selections, ["name", "age", "password"], "Expected selections to match UserSchema fields")
     }
 
@@ -63,10 +63,10 @@ final class SchemaTests: XCTestCase {
         let nameField = UserSchema.name
         XCTAssertNotNil(nameField, "Expected 'name' field to exist in UserSchema")
         
-        let query = Query.from(UserSchema.schemaName)
+        let query = Query.from(UserSchema.self)
             .where(UserSchema.name?.name ?? "", "=", "John Doe")
         
-        XCTAssertEqual(query.table, "users", "Expected query to target 'users' table")
+        XCTAssertEqual(query.schema.schemaName, "users", "Expected query to target 'users' table")
     }
 }
 
