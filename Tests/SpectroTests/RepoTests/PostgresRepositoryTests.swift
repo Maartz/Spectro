@@ -330,7 +330,6 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(results[0].values["email"], "john@example.com")
     }
 
-
     func testAdvancedComparisons() async throws {
         try await repository.insert(
             into: "users",
@@ -448,31 +447,67 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(results.count, 4)
         XCTAssertEqual(results[2].values["name"], "Young Active")
     }
-    
+
     func testOrderByClause() async throws {
         try await repository.delete(from: "users")
-        try await repository.insert(into: "users", values: .with([
-            "name": "Adam",
-            "email": "test2@example.com",
-        ]))
-        try await repository.insert(into: "users", values: .with([
-            "name": "Bob",
-            "email": "test2@example.com",
-        ]))
-        try await repository.insert(into: "users", values: .with([
-            "name": "Charlie",
-            "email": "test2@example.com",
-        ]))
-        
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Adam",
+                "email": "test2@example.com",
+            ]))
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Bob",
+                "email": "test2@example.com",
+            ]))
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Charlie",
+                "email": "test2@example.com",
+            ]))
+
         let query = Query.from(UserSchema.self)
             .select { [$0.name, $0.age] }
             .orderBy { [$0.name.asc()] }
-            
+
         let results = try await repository.all(query: query)
-        
+
         XCTAssertEqual(results.count, 3)
-        XCTAssertEqual(results[0].values["name"], "Adam") // Oldest
+        XCTAssertEqual(results[0].values["name"], "Adam")  // Oldest
         XCTAssertEqual(results[1].values["name"], "Bob")
-        XCTAssertEqual(results[2].values["name"], "Charlie")     // Youngest
+        XCTAssertEqual(results[2].values["name"], "Charlie")  // Youngest
+    }
+
+    func testPagination() async throws {
+
+        try await repository.delete(from: "users")
+        var query = Query.from(UserSchema.self)
+            .select { [$0.name, $0.email] }
+            .orderBy { [$0.name.asc()] }
+            .limit(10)
+
+        for i in 0..<20 {
+            try await repository.insert(
+                into: "users",
+                values: .with([
+                    "name": "Adam\(i)",
+                    "email": "test\(i)@example.com",
+                ]))
+        }
+
+        var results = try await repository.all(query: query)
+        XCTAssert(results.count == 10)
+
+        query = Query.from(UserSchema.self)
+            .select { [$0.name, $0.email] }
+            .orderBy { [$0.name.asc()] }
+            .limit(10)
+            .offset(10)
+        
+        results = try await repository.all(query: query)
+        XCTAssert(results.count == 10)
     }
 }
