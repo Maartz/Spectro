@@ -61,7 +61,8 @@ public struct FieldPredicate {
         QueryCondition(
             field: name,
             op: "BETWEEN",
-            value: .between(ConditionValue.value(start), ConditionValue.value(end))  // New ConditionValue case
+            value: .between(
+                ConditionValue.value(start), ConditionValue.value(end))  // New ConditionValue case
         )
     }
 
@@ -71,6 +72,14 @@ public struct FieldPredicate {
             op: "LIKE",
             value: .string("%\(value)%")
         )
+    }
+
+    func asc() -> OrderByField {
+        OrderByField(field: name, direction: .asc)
+    }
+
+    func desc() -> OrderByField {
+        OrderByField(field: name, direction: .desc)
     }
 }
 
