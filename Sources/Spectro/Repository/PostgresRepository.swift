@@ -22,12 +22,23 @@ public final class PostgresRepository: Repository {
     // get_by_* where * is a field of the schema
     public func all(query: Query) async throws -> [DataRow] {
         let whereClause = SQLBuilder.buildWhereClause(query.conditions)
+        let orderClause =
+            query.orderBy.isEmpty
+            ? ""
+            : " ORDER BY "
+                + query.orderBy.map { "\($0.field) \($0.direction.sql)" }
+                .joined(separator: ", ")
+        let limitClause = query.limit.map { " LIMIT \($0)" } ?? ""
+        let offsetClause = query.offset.map { " OFFSET \($0)" } ?? ""
+
         let sql = """
             SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)
             \(query.conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
+            \(orderClause)\(limitClause)\(offsetClause)
             """
 
-        return try await db.executeQuery(sql: sql, params: whereClause.params) { row in
+        return try await db.executeQuery(sql: sql, params: whereClause.params) {
+            row in
             let randomAccessRow = row.makeRandomAccess()
             var dict: [String: String] = [:]
             for column in query.selections {
@@ -175,3 +186,4 @@ public final class PostgresRepository: Repository {
         try await db.executeUpdate(sql: sql, params: params)
     }
 }
+#endif
