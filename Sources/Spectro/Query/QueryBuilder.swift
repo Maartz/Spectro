@@ -18,9 +18,9 @@ struct SQLBuilder {
         for (index, (column, (op, value))) in conditions.enumerated() {
             switch value {
             case .null:
-                if op == "=" || op.uppercased() == "IS" {
+                if op == "IS NULL" {  // Changed this condition
                     clauseParts.append("\(column) IS NULL")
-                } else if op == "!=" || op.uppercased() == "IS NOT" {
+                } else if op == "IS NOT NULL" {
                     clauseParts.append("\(column) IS NOT NULL")
                 } else {
                     fatalError("Unsupported operator \(op) for NULL value.")
