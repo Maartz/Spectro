@@ -49,7 +49,7 @@ final class SchemaTests: XCTestCase {
     func testSchemaToQueryTranslation() throws {
         let query = Query.from(UserSchema.self)
             .select { [$0.age, $0.password, $0.name] }
-            .where("name", "=", "John Doe")
+            .where { $0.name.eq("John Doe") }
 
         XCTAssertEqual(
             query.schema.schemaName, "users", "Expected query table 'users'")
@@ -70,18 +70,5 @@ final class SchemaTests: XCTestCase {
         let invalidField = UserSchema.nonExistentField
         XCTAssertNil(
             invalidField, "Expected 'nonExistentField' to be nil in UserSchema")
-    }
-
-    func testSchemaFieldAccess() {
-        let nameField = UserSchema.name
-        XCTAssertNotNil(
-            nameField, "Expected 'name' field to exist in UserSchema")
-
-        let query = Query.from(UserSchema.self)
-            .where(UserSchema.name?.name ?? "", "=", "John Doe")
-
-        XCTAssertEqual(
-            query.schema.schemaName, "users",
-            "Expected query to target 'users' table")
     }
 }

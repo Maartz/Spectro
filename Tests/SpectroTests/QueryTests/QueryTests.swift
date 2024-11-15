@@ -19,7 +19,7 @@ final class QueryTests: XCTestCase {
     }
 
     func testQueryWhereClause() {
-        let query = Query.from(UserSchema.self).where("age", ">", 18)
+        let query = Query.from(UserSchema.self).where { $0.age > 18}
 
         XCTAssertEqual(
             query.conditions.count, 1, "There should be one condition")
@@ -30,8 +30,7 @@ final class QueryTests: XCTestCase {
             query.conditions["age"]?.1, .int(18),
             "The value should be 18 for age condition")
 
-        let queryWithMultipleConditions = query.where(
-            "is_active", "=", .bool(true))
+        let queryWithMultipleConditions = query.where { $0.is_active == true}
         XCTAssertEqual(
             queryWithMultipleConditions.conditions.count, 2,
             "There should be two conditions")
