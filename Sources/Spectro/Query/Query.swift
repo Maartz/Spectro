@@ -20,21 +20,21 @@ public struct Query: Sendable {
         return Query(table: schema.schemaName, schema: schema)
     }
 
-    func `where`(_ field: String, _ op: String, _ value: ConditionValue)
-        -> Query
-    {
+    func `where`(_ builder: (FieldSelector) -> QueryCondition) -> Query {
         var copy = self
-        copy.conditions[field] = (op, value)
+        let selector = FieldSelector(schema: schema)
+        let condition = builder(selector)
+        copy.conditions[condition.field] = (condition.op, condition.value)
         return copy
     }
 
-    func select(_ columns: (FieldSelector) -> [String]) -> Query {
+    func select(_ columns: (FieldSelector) -> [FieldPredicate]) -> Query {
         var copy = self
         let selector = FieldSelector(schema: schema)
-        copy.selections = columns(selector)
+        copy.selections = columns(selector).map { $0.fieldName }
         return copy
     }
-    
+
     func debugSQL() -> String {
         let whereClause = SQLBuilder.buildWhereClause(conditions)
         return """
