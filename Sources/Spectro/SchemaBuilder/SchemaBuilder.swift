@@ -19,7 +19,7 @@ public struct SchemaBuilder {
 }
 
 public enum Field {
-    public static func create(
+    public static func description(
         _ name: String, _ type: FieldType, isRedacted: Bool = false
     ) -> SField {
         SField(name: name, type: type, isRedacted: isRedacted)

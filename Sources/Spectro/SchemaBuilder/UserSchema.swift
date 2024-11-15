@@ -10,8 +10,8 @@ struct UserSchema: Schema {
 
     @SchemaBuilder
     static var fields: [SField] {
-        Field.create("name", .string)
-        Field.create("age", .integer(defaultValue: 0))
-        Field.create("password", .string, isRedacted: true)
+        Field.description("name", .string)
+        Field.description("age", .integer(defaultValue: 0))
+        Field.description("password", .string, isRedacted: true)
     }
 }
