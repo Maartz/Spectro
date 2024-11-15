@@ -31,7 +31,7 @@ final class PostgresRepositoryTests: XCTestCase {
         let query = Query.from(UserSchema.self)
             .select { [$0.name, $0.email] }
             .where { $0.name.like("John%") }
-        
+
         let results = try await repository.all(query: query)
 
         XCTAssertEqual(results.count, 1)
@@ -109,7 +109,7 @@ final class PostgresRepositoryTests: XCTestCase {
 
         let query = Query.from(UserSchema.self)
             .select { [$0.name, $0.email] }
-            .where {$0.name.eq("Maartz")}
+            .where { $0.name.eq("Maartz") }
 
         let results = try await repository.all(query: query)
 
@@ -140,7 +140,7 @@ final class PostgresRepositoryTests: XCTestCase {
 
         let query = Query.from(UserSchema.self)
             .select { [$0.name, $0.email] }
-            .where { $0.name.eq("Tyler Durden")}
+            .where { $0.name.eq("Tyler Durden") }
 
         let results = try await repository.all(query: query)
         XCTAssertEqual(results.count, 0)
@@ -235,7 +235,12 @@ final class PostgresRepositoryTests: XCTestCase {
         )
 
         let query = Query.from(UserSchema.self)
-            .select { [$0.name, $0.email, $0.age, $0.score, $0.is_active, $0.login_count] }
+            .select {
+                [
+                    $0.name, $0.email, $0.age, $0.score, $0.is_active,
+                    $0.login_count,
+                ]
+            }
             .where { $0.age > 25 }
             .where { $0.score >= 90.0 }
             .where { $0.is_active == true }
@@ -294,8 +299,13 @@ final class PostgresRepositoryTests: XCTestCase {
         )
 
         let query = Query.from(UserSchema.self)
-            .select { [$0.id, $0.name, $0.email, $0.age, $0.score, $0.is_active, $0.login_count] }
-            .where { $0.age.isNull()}
+            .select {
+                [
+                    $0.id, $0.name, $0.email, $0.age, $0.score, $0.is_active,
+                    $0.login_count,
+                ]
+            }
+            .where { $0.age.isNull() }
 
         let results = try await repository.all(query: query)
 
@@ -307,16 +317,81 @@ final class PostgresRepositoryTests: XCTestCase {
             UUID(uuidString: results[0].values["id"] ?? ""), userId,
             "Expected UUID to match \(userId)")
     }
-    
+
     func testNewSelectSyntax() async throws {
         let query = Query.from(UserSchema.self)
             .select { [$0.email, $0.name] }
-            .where { $0.name.like("John%")}
-        
+            .where { $0.name.like("John%") }
+
         let results = try await repository.all(query: query)
-        
+
         XCTAssertEqual(results.count, 1)
         XCTAssertEqual(results[0].values["name"], "John Doe")
         XCTAssertEqual(results[0].values["email"], "john@example.com")
+    }
+
+    //    func testOrderBy() async throws {
+    //        let query = Query.from(UserSchema.self)
+    //            .orderBy { $0.name.asc() }
+    //
+    //        let results = try await repository.all(query: query)
+    //
+    //        XCTAssertEqual(results.count, )
+    //        XCTAssertEqual(results[0].first?.description, "John Doe")
+    //    }
+    func testAdvancedComparisons() async throws {
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Test User 1",
+                "email": "test1@example.com",
+                "age": 20,
+                "score": 85.5,
+            ]))
+
+        try await repository.insert(
+            into: "users",
+            values: .with([
+                "name": "Test User 2",
+                "email": "test2@example.com",
+                "age": 30,
+                "score": 92.5,
+            ]))
+
+        let youngUsers = try await repository.all(
+            query: Query.from(UserSchema.self)
+                .select { [$0.name, $0.age] }
+                .where { $0.age < 25 }
+        )
+        XCTAssertEqual(youngUsers.count, 1)
+        XCTAssertEqual(youngUsers[0].values["name"], "Test User 1")
+
+        let lowScores = try await repository.all(
+            query: Query.from(UserSchema.self)
+                .select { [$0.name, $0.score] }
+                .where { $0.score <= 85.5 }
+        )
+        XCTAssertEqual(lowScores.count, 2)
+        XCTAssertEqual(lowScores[1].values["name"], "Test User 1")
+
+        var query = Query.from(UserSchema.self)
+            .select { [$0.name, $0.age] }
+            .where { $0.age.between(19, 31) }
+
+        let midAgeUsers = try await repository.all(
+            query: query
+        )
+
+        debugPrint(query)
+        XCTAssertEqual(midAgeUsers.count, 4)
+
+        query = Query.from(UserSchema.self)
+            .select { [$0.name] }
+            .where { $0.name.contains("User") }
+        
+        let containsTest = try await repository.all(
+            query: query
+        )
+        XCTAssertEqual(containsTest.count, 2)
     }
 }

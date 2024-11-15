@@ -25,6 +25,10 @@ struct SQLBuilder {
                 } else {
                     fatalError("Unsupported operator \(op) for NULL value.")
                 }
+            case .between(let start, let end):
+                clauseParts.append("\(column) BETWEEN $\(index + 1) AND $\(index + 2)")
+                params.append(try! start.toPostgresData())
+                params.append(try! end.toPostgresData())
             default:
                 clauseParts.append("\(column) \(op) $\((index + 1))")
                 params.append(try! value.toPostgresData())

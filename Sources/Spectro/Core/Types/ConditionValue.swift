@@ -8,7 +8,7 @@
 import Foundation
 import PostgresKit
 
-public enum ConditionValue: Sendable, Equatable, Encodable {
+public indirect enum ConditionValue: Sendable, Equatable, Encodable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -17,6 +17,7 @@ public enum ConditionValue: Sendable, Equatable, Encodable {
     case date(Date)
     case null
     case jsonb(String)
+    case between(ConditionValue, ConditionValue)
 
     public static func value(_ value: Any) -> ConditionValue {
         switch value {
@@ -58,6 +59,8 @@ public enum ConditionValue: Sendable, Equatable, Encodable {
             return PostgresData(date: value)
         case .jsonb(let value):
             return try PostgresData(jsonb: value)
+        case .between( _, _):
+            fatalError("BETWEEN should be handled by SQLBuilder")
         case .null:
             return PostgresData(type: .null, value: nil)
         }

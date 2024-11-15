@@ -34,6 +34,13 @@ public struct Query: Sendable {
         copy.selections = columns(selector).map { $0.fieldName }
         return copy
     }
+    
+    func orderBy(_ columns: (FieldSelector) -> [FieldPredicate]) -> Query {
+        var copy = self
+        let selector = FieldSelector(schema: schema)
+        copy.selections.append(contentsOf: columns(selector).map(\.fieldName))
+        return copy
+    }
 
     func debugSQL() -> String {
         let whereClause = SQLBuilder.buildWhereClause(conditions)
