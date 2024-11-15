@@ -11,12 +11,23 @@ import Foundation
 public protocol Schema {
     static var schemaName: String { get }
     static var fields: [SField] { get }
-    
+    static var includesImplicitID: Bool { get }
+
     static subscript(dynamicMember member: String) -> SField? { get }
 }
 
-public extension Schema {
-    static subscript(dynamicMember member: String) -> SField? {
-        fields.first { $0.name == member }
+extension Schema {
+    public static var includesImplicitID: Bool { true }
+
+    public static var allFields: [SField] {
+        var combinedFields = fields
+        if includesImplicitID {
+            combinedFields.insert(Field.description("id", .uuid), at: 0)
+        }
+        return combinedFields
+    }
+
+    public static subscript(dynamicMember member: String) -> SField? {
+        allFields.first { $0.name == member }
     }
 }
