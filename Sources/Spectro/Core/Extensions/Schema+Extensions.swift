@@ -8,7 +8,7 @@
 import Foundation
 import PostgresKit
 
-public extension Schema {
+extension Schema {
     static func validateValue(_ value: Any?, for field: SField) -> ConditionValue {
         guard let value = value else {
             return .null

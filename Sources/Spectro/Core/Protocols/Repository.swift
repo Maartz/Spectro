@@ -5,7 +5,7 @@
 //  Created by William MARTIN on 11/3/24.
 //
 
-public protocol Repository {
+protocol Repository {
     func all(query: Query) async throws -> [DataRow]
     func insert(into table: String, values: [String: ConditionValue])
         async throws

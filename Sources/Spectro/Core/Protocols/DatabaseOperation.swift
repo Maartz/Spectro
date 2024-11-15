@@ -8,7 +8,7 @@
 import NIOCore
 import PostgresKit
 
-public protocol DatabaseOperations {
+protocol DatabaseOperations {
     func executeQuery<T: Sendable>(
         sql: String,
         params: [PostgresData],
