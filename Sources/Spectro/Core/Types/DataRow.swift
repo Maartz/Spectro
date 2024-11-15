@@ -1,5 +1,5 @@
 //
-//  Types.swift
+//  DataRow.swift
 //  Spectro
 //
 //  Created by William MARTIN on 11/3/24.
