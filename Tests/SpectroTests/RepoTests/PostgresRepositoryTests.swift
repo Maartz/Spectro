@@ -330,15 +330,7 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(results[0].values["email"], "john@example.com")
     }
 
-    //    func testOrderBy() async throws {
-    //        let query = Query.from(UserSchema.self)
-    //            .orderBy { $0.name.asc() }
-    //
-    //        let results = try await repository.all(query: query)
-    //
-    //        XCTAssertEqual(results.count, )
-    //        XCTAssertEqual(results[0].first?.description, "John Doe")
-    //    }
+
     func testAdvancedComparisons() async throws {
         try await repository.insert(
             into: "users",
@@ -455,5 +447,32 @@ final class PostgresRepositoryTests: XCTestCase {
         let results = try await repository.all(query: query)
         XCTAssertEqual(results.count, 4)
         XCTAssertEqual(results[2].values["name"], "Young Active")
+    }
+    
+    func testOrderByClause() async throws {
+        try await repository.delete(from: "users")
+        try await repository.insert(into: "users", values: .with([
+            "name": "Adam",
+            "email": "test2@example.com",
+        ]))
+        try await repository.insert(into: "users", values: .with([
+            "name": "Bob",
+            "email": "test2@example.com",
+        ]))
+        try await repository.insert(into: "users", values: .with([
+            "name": "Charlie",
+            "email": "test2@example.com",
+        ]))
+        
+        let query = Query.from(UserSchema.self)
+            .select { [$0.name, $0.age] }
+            .orderBy { [$0.name.asc()] }
+            
+        let results = try await repository.all(query: query)
+        
+        XCTAssertEqual(results.count, 3)
+        XCTAssertEqual(results[0].values["name"], "Adam") // Oldest
+        XCTAssertEqual(results[1].values["name"], "Bob")
+        XCTAssertEqual(results[2].values["name"], "Charlie")     // Youngest
     }
 }
