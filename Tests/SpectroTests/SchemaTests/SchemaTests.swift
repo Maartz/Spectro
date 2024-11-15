@@ -19,8 +19,8 @@ final class SchemaTests: XCTestCase {
             schemaName, "users",
             "Expected schema name 'users' but got \(schemaName)")
         XCTAssertEqual(
-            fields.count, 3,
-            "Expected 3 fields in User schema, but got \(fields.count)")
+            fields.count, 12,
+            "Expected 12 fields in User schema, but got \(fields.count)")
 
         let nameField = UserSchema.name
         XCTAssertNotNil(nameField, "Expected 'name' field in User schema")
@@ -46,17 +46,15 @@ final class SchemaTests: XCTestCase {
             "Expected 'password' field to be redacted")
     }
 
-    // TODO: would be great to be able to pass an Array of params to Query.select
-    // .select(UserSchema.fields.map { $0.name })
     func testSchemaToQueryTranslation() throws {
         let query = Query.from(UserSchema.self)
-            .select { ["name", "age", "password"] }
+            .select { [$0.age, $0.password, $0.name] }
             .where("name", "=", "John Doe")
 
         XCTAssertEqual(
             query.schema.schemaName, "users", "Expected query table 'users'")
         XCTAssertEqual(
-            query.selections, ["name", "age", "password"],
+            query.selections, ["age", "password", "name"],
             "Expected selections to match UserSchema fields")
     }
 

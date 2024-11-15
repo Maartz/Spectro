@@ -29,7 +29,7 @@ final class PostgresRepositoryTests: XCTestCase {
 
     func testBasicQuery() async throws {
         let query = Query.from(UserSchema.self)
-            .select { ["name", "email"] }
+            .select { [$0.name, $0.email] }
             .where("name", "LIKE", "John%")
 
         let results = try await repository.all(query: query)
@@ -49,7 +49,7 @@ final class PostgresRepositoryTests: XCTestCase {
         )
 
         let query = Query.from(UserSchema.self)
-            .select { ["name", "email"] }
+            .select { [$0.name, $0.email] }
             .where("name", "LIKE", "William%")
 
         let results = try await repository.all(query: query)
@@ -80,7 +80,8 @@ final class PostgresRepositoryTests: XCTestCase {
         }
 
         let query = Query.from(UserSchema.self)
-            .select { ["name", "email"] }
+            .select { [$0.name, $0.email] }
+            .where("name", "LIKE", "William%")
             .where("name", "LIKE", "%Doe")
 
         let results = try await repository.all(query: query)
@@ -109,7 +110,7 @@ final class PostgresRepositoryTests: XCTestCase {
         )
 
         let query = Query.from(UserSchema.self)
-            .select { ["name", "email"] }
+            .select { [$0.name, $0.email] }
             .where("name", "=", "Maartz")
 
         let results = try await repository.all(query: query)
@@ -140,7 +141,7 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(finalCount, 2)
 
         let query = Query.from(UserSchema.self)
-            .select { ["name", "email"] }
+            .select { [$0.name, $0.email] }
             .where("name", "=", "Tyler Durden")
 
         debugPrint("SQL:", query.debugSQL())
@@ -238,9 +239,7 @@ final class PostgresRepositoryTests: XCTestCase {
         )
 
         let query = Query.from(UserSchema.self)
-            .select {
-                ["name", "email", "age", "score", "is_active", "login_count"]
-            }
+            .select { [$0.name, $0.email, $0.age, $0.score, $0.is_active, $0.login_count] }
             .where("age", ">", 25)
             .where("score", ">=", 90.0)
             .where("is_active", "=", true)
@@ -299,7 +298,7 @@ final class PostgresRepositoryTests: XCTestCase {
         )
 
         let query = Query.from(UserSchema.self)
-            .select { ["id", "name", "age"] }
+            .select { [$0.id, $0.name, $0.email, $0.age, $0.score, $0.is_active, $0.login_count] }
             .where("age", "IS", .null)
 
         let results = try await repository.all(query: query)
@@ -311,5 +310,17 @@ final class PostgresRepositoryTests: XCTestCase {
         XCTAssertEqual(
             UUID(uuidString: results[0].values["id"] ?? ""), userId,
             "Expected UUID to match \(userId)")
+    }
+    
+    func testNewSelectSyntax() async throws {
+        let query = Query.from(UserSchema.self)
+            .select { [$0.email, $0.name] }
+            .where("name", "LIKE", "John%")
+        
+        let results = try await repository.all(query: query)
+        
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].values["name"], "John Doe")
+        XCTAssertEqual(results[0].values["email"], "john@example.com")
     }
 }

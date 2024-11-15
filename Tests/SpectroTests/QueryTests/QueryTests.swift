@@ -44,7 +44,7 @@ final class QueryTests: XCTestCase {
     }
 
     func testQuerySelectClause() {
-        let query = Query.from(UserSchema.self).select { ["name", "email"] }
+        let query = Query.from(UserSchema.self).select { [$0.name, $0.email] }
         XCTAssertEqual(
             query.selections.count, 2, "There should be two selected columns")
         XCTAssertEqual(

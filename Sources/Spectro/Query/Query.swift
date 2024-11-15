@@ -28,9 +28,10 @@ public struct Query: Sendable {
         return copy
     }
 
-    func select(_ columns: () -> [String]) -> Query {
+    func select(_ columns: (FieldSelector) -> [String]) -> Query {
         var copy = self
-        copy.selections = columns()
+        let selector = FieldSelector(schema: schema)
+        copy.selections = columns(selector)
         return copy
     }
     
