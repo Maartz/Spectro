@@ -37,12 +37,12 @@ public final class Spectro {
         )
     }
 
-    public func shutdown() {
+    func shutdown() {
         pools.shutdown()
         try? eventLoop.syncShutdownGracefully()
     }
 
-    public func test() async throws -> String {
+    func test() async throws -> String {
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<String, Error>) in
             let future: EventLoopFuture<String> = pools.withConnection { conn in

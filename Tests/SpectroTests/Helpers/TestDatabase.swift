@@ -9,8 +9,6 @@ import NIOCore
 import PostgresKit
 import XCTest
 
-@testable import Spectro
-
 final class TestDatabase {
     let eventLoop: EventLoopGroup
     let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
