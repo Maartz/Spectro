@@ -506,7 +506,7 @@ final class PostgresRepositoryTests: XCTestCase {
             .orderBy { [$0.name.asc()] }
             .limit(10)
             .offset(10)
-        
+
         results = try await repository.all(query: query)
         XCTAssert(results.count == 10)
     }
