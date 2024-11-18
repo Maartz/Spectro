@@ -1,6 +1,6 @@
 //
 //  String+Case.swift
-//  SpectroCLI
+//  SpectroCore
 //
 //  Created by William MARTIN on 11/16/24.
 //
@@ -24,7 +24,6 @@ public extension String {
     }
     
     func pascalCase() -> String {
-        // First convert to snake case to handle any existing format
         let words = self.snakeCase().split(separator: "_")
         return words
             .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
