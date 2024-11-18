@@ -3,7 +3,7 @@ import NIOCore
 import PostgresKit
 
 public final class Spectro {
-    private let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
+    public let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
     private let eventLoop: EventLoopGroup
 
     public init(
@@ -35,6 +35,10 @@ public final class Spectro {
             maxConnectionsPerEventLoop: 1,
             on: eventLoop
         )
+    }
+
+    public func migrationManager() -> MigrationManager {
+        return MigrationManager(spectro: self)
     }
 
     func shutdown() {
