@@ -16,6 +16,8 @@ protocol Schema {
     static subscript(dynamicMember member: String) -> SField? { get }
 }
 
+//TODO: Add a decorator here for adding either
+//a uuid as PK or by default a bigInt
 extension Schema {
     public static var includesImplicitID: Bool { true }
 

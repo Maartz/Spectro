@@ -156,4 +156,90 @@ public class MigrationManager {
 
         return false
     }
+
+    public func runMigrations() async throws {
+        try await ensureMigrationTableExists()
+
+        let pendingMigrations = try await getPendingMigrations()
+
+        for migration in pendingMigrations {
+            try await withTransaction { conn in
+                _ = migration
+            }
+        }
+    }
+
+    private func withTransaction<T>(_ operation: @escaping (SQLDatabase) async throws -> T)
+        async throws -> T
+    {
+        try await withCheckedThrowingContinuation { continuation in
+            let future = spectro.pools.withConnection { conn in
+                conn.sql().raw("BEGIN").run().flatMap { _ in
+                    let promise: EventLoopPromise<T> = conn.eventLoop.makePromise()
+
+                    Task {
+                        do {
+                            let result = try await operation(conn.sql())
+                            try await conn.sql().raw("COMMIT").run().get()
+                            promise.succeed(result)
+                        } catch {
+                            try await conn.sql().raw("ROLLBACK").run().get()
+                            promise.fail(error)
+                        }
+                    }
+
+                    return promise.futureResult
+                }
+            }
+
+            future.whenComplete { result in
+                switch result {
+                case .success(let value):
+                    continuation.resume(returning: value)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+    }
+
+    private func updateMigrationStatus(_ migration: MigrationFile, status: MigrationStatus)
+        async throws
+    {
+        try await withCheckedThrowingContinuation { continuation in
+            let future = spectro.pools.withConnection { conn in
+                conn.sql().raw(
+                    """
+                        INSERT INTO schema_migrations (version, name, status)
+                        VALUES (\(bind: migration.version), \(bind: migration.name), \(bind: status.rawValue))
+                        ON CONFLICT (version) 
+                        DO UPDATE SET status = \(bind: status.rawValue), applied_at = CURRENT_TIMESTAMP
+                    """
+                ).run()
+            }
+
+            future.whenComplete { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func executeMigration(_ sql: String, on db: SQLDatabase) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            db.raw(SQLQueryString.init(sql)).run().whenComplete { result in
+                switch result {
+                case .success:
+                    continuation.resume()
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
 }
