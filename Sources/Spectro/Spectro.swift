@@ -41,7 +41,7 @@ public final class Spectro {
         return MigrationManager(spectro: self)
     }
 
-    func shutdown() {
+    public func shutdown() {
         pools.shutdown()
         try? eventLoop.syncShutdownGracefully()
     }

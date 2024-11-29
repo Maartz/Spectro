@@ -5,16 +5,18 @@ import SpectroCore
 public class MigrationManager {
     private let spectro: Spectro
     private let fileManager: FileManager = .default
-    private let migrationsPath = "Sources/Migrations"
+    private let migrationsPath: URL
 
     public init(spectro: Spectro) {
         self.spectro = spectro
+        let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        self.migrationsPath = currentDirectory.appendingPathComponent("Sources/Migrations")
     }
 
     public struct MigrationFile {
         let version: String
         let name: String
-        let filePath: String
+        let filePath: URL
     }
 
     struct MigrationRecord {
@@ -65,6 +67,7 @@ public class MigrationManager {
 
     func getMigrationStatus() async throws -> [MigrationRecord] {
         try await withCheckedThrowingContinuation { continuation in
+            debugPrint("Getting migration status from database...")
             let future = spectro.pools.withConnection { conn in
                 conn.sql()
                     .raw(
@@ -75,15 +78,16 @@ public class MigrationManager {
                         """
                     )
                     .all()
-                    .map { rows -> [MigrationRecord] in
-                        rows.map { row in
-                            MigrationRecord(
-                                version: try! row.decode(column: "version", as: String.self),
-                                name: try! row.decode(column: "name", as: String.self),
-                                appliedAt: try! row.decode(column: "applied_at", as: Date.self),
+                    .flatMapThrowing { rows -> [MigrationRecord] in
+                        debugPrint("Found \(rows.count) migration records")
+                        return try rows.map { row in
+                            try MigrationRecord(
+                                version: row.decode(column: "version", as: String.self),
+                                name: row.decode(column: "name", as: String.self),
+                                appliedAt: row.decode(column: "applied_at", as: Date.self),
                                 status: MigrationStatus(
-                                    rawValue: try! row.decode(column: "status", as: String.self))
-                                    ?? .failed
+                                    rawValue: row.decode(column: "status", as: String.self)
+                                )
                             )
                         }
                     }
@@ -103,17 +107,20 @@ public class MigrationManager {
     public func discoverMigrations() throws -> [MigrationFile] {
         debugPrint("Checking migrations directory:", migrationsPath)
 
-        guard FileManager.default.fileExists(atPath: migrationsPath) else {
+        guard FileManager.default.fileExists(atPath: migrationsPath.path) else {
             debugPrint("Migrations directory not found")
-            throw MigrationError.directoryNotFound(migrationsPath)
+            throw MigrationError.directoryNotFound(migrationsPath.path)
         }
 
         debugPrint("Reading directory contents")
-        let files = try FileManager.default.contentsOfDirectory(atPath: migrationsPath)
-        let swiftFiles = files.filter { $0.hasSuffix(".swift") }
+        let files = try FileManager.default.contentsOfDirectory(
+            at: migrationsPath, includingPropertiesForKeys: nil)
+
+        let swiftFiles = files.filter { $0.pathExtension == "swift" }
         debugPrint("Found Swift files:", swiftFiles)
 
-        return swiftFiles.compactMap { fileName -> MigrationFile? in
+        return swiftFiles.compactMap { fileURL -> MigrationFile? in
+            let fileName = fileURL.lastPathComponent
             debugPrint("Processing file:", fileName)
             let components = fileName.dropLast(6).split(separator: "_", maxSplits: 1)
             guard components.count == 2,
@@ -129,7 +136,7 @@ public class MigrationManager {
             let migrationFile = MigrationFile(
                 version: "\(timestamp)_\(name)",
                 name: String(name),
-                filePath: "\(migrationsPath)/\(fileName)"
+                filePath: fileURL
             )
             debugPrint("Created MigrationFile:", migrationFile)
             return migrationFile
@@ -137,11 +144,26 @@ public class MigrationManager {
     }
 
     public func getPendingMigrations() async throws -> [MigrationFile] {
+        debugPrint("Starting to get pending migrations...")
         let discoveredMigrations = try discoverMigrations()
-        let appliedMigrations = try await getMigrationStatus()
 
-        let appliedVersions = Set(appliedMigrations.map(\.version))
-        return discoveredMigrations.filter { !appliedVersions.contains($0.version) }
+        debugPrint("Discovered \(discoveredMigrations.count) migration files")
+
+        do {
+            let appliedMigrations = try await getMigrationStatus()
+            debugPrint("Found \(appliedMigrations.count) applied migrations")
+
+            let appliedVersions = Set(appliedMigrations.map(\.version))
+            let pendingMigrations = discoveredMigrations.filter {
+                !appliedVersions.contains($0.version)
+            }
+            debugPrint("Identified \(pendingMigrations.count) pending migrations")
+
+            return pendingMigrations
+        } catch {
+            debugPrint("Error while getting migration status:", String(reflecting: error))
+            throw error
+        }
     }
 
     func isValidUnixTimestamp(_ timestamp: String) -> Bool {
@@ -161,10 +183,29 @@ public class MigrationManager {
         try await ensureMigrationTableExists()
 
         let pendingMigrations = try await getPendingMigrations()
+        debugPrint("Starting to run \(pendingMigrations.count) pending migrations")
 
         for migration in pendingMigrations {
-            try await withTransaction { conn in
-                _ = migration
+            debugPrint("Running migration:", migration.version)
+            try await withTransaction { db in
+                debugPrint("Updating migration status to pending")
+                // try await self.updateMigrationStatus(migration, status: .pending)
+                debugPrint("Loading migration content")
+                let content = try self.loadMigrationContent(from: migration)
+                debugPrint("Loaded SQL:", content.up)
+                // TODO: add logic to run either up or down based on CLI input
+                // migrate -> up
+                // rollback -> down
+
+                // TODO: add a step param, rollback --step 2, runs 2 version in down
+                debugPrint("Executing migration")
+                try await self.executeMigration(content.up, on: db)
+
+                debugPrint("Updating migration status to completed")
+                try await self.updateMigrationStatus(migration, status: .completed)
+
+                debugPrint("Migration completed")
+                return ()
             }
         }
     }
@@ -173,17 +214,25 @@ public class MigrationManager {
         async throws -> T
     {
         try await withCheckedThrowingContinuation { continuation in
+            debugPrint("Starting transaction")
             let future = spectro.pools.withConnection { conn in
                 conn.sql().raw("BEGIN").run().flatMap { _ in
+                    debugPrint("BEGIN executed")
                     let promise: EventLoopPromise<T> = conn.eventLoop.makePromise()
 
                     Task {
                         do {
+                            debugPrint("Executing transaction operation")
                             let result = try await operation(conn.sql())
+                            debugPrint("operation successful, commiting")
                             try await conn.sql().raw("COMMIT").run().get()
+                            debugPrint("COMMIT sucessful")
                             promise.succeed(result)
                         } catch {
+                            debugPrint("operation failed:", String(reflecting: error))
+                            debugPrint("ROLLBACK")
                             try await conn.sql().raw("ROLLBACK").run().get()
+                            debugPrint("ROLLBACK successful")
                             promise.fail(error)
                         }
                     }
@@ -195,8 +244,10 @@ public class MigrationManager {
             future.whenComplete { result in
                 switch result {
                 case .success(let value):
+                    debugPrint("Transaction completed")
                     continuation.resume(returning: value)
                 case .failure(let error):
+                    debugPrint("Transaction failed:", String(reflecting: error))
                     continuation.resume(throwing: error)
                 }
             }
@@ -207,14 +258,16 @@ public class MigrationManager {
     private func updateMigrationStatus(_ migration: MigrationFile, status: MigrationStatus)
         async throws
     {
+        debugPrint("Updating migration status for:", migration.version)
+        debugPrint("Status:", status.rawValue)
         try await withCheckedThrowingContinuation { continuation in
             let future = spectro.pools.withConnection { conn in
                 conn.sql().raw(
                     """
                         INSERT INTO schema_migrations (version, name, status)
-                        VALUES (\(bind: migration.version), \(bind: migration.name), \(bind: status.rawValue))
+                        VALUES (\(bind: migration.version), \(bind: migration.name), \(bind: status.rawValue)::migration_status)
                         ON CONFLICT (version) 
-                        DO UPDATE SET status = \(bind: status.rawValue), applied_at = CURRENT_TIMESTAMP
+                        DO UPDATE SET status = \(bind: status.rawValue)::migration_status, applied_at = CURRENT_TIMESTAMP
                     """
                 ).run()
             }
@@ -231,15 +284,70 @@ public class MigrationManager {
     }
 
     private func executeMigration(_ sql: String, on db: SQLDatabase) async throws {
-        try await withCheckedThrowingContinuation { continuation in
-            db.raw(SQLQueryString.init(sql)).run().whenComplete { result in
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+        let statements = sql.components(separatedBy: ";\n").filter { !$0.isEmpty }.map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }.filter { !$0.isEmpty }
+            .map { $0 + ";" }
+
+        debugPrint("Executing \(statements.count) SQL statements")
+
+        for (index, statement) in statements.enumerated() {
+            debugPrint("Executing statement \(index + 1):", statement)
+
+            try await withCheckedThrowingContinuation { continuation in
+                let future = statements.enumerated().reduce(
+                    db.raw(SQLQueryString(statements[0])).run()
+                ) {
+                    chain, next in
+
+                    let (index, statement) = next
+                    return chain.flatMap { _ -> EventLoopFuture<Void> in
+                        debugPrint("Executing statement \(index + 1):")
+                        return db.raw(SQLQueryString(statement)).run()
+                    }
+
+                }
+
+                future.whenComplete { result in
+                    switch result {
+                    case .success:
+                        debugPrint("All statements executed")
+                        continuation.resume()
+                    case .failure(let error):
+                        debugPrint("All Statement failed:", String(reflecting: error))
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
         }
+    }
+
+    private func loadMigrationContent(from file: MigrationFile) throws -> (up: String, down: String)
+    {
+        let content = try String(contentsOf: file.filePath, encoding: .utf8)
+        debugPrint("Reading content from:", file.filePath.path)
+        debugPrint("Content:", content)
+
+        guard let upStart = content.range(of: "func up() -> String {")?.upperBound,
+            let upEnd = content.range(of: "}", range: upStart..<content.endIndex)?.lowerBound,
+            let downStart = content.range(of: "func down() -> String {")?.upperBound,
+            let downEnd = content.range(of: "}", range: downStart..<content.endIndex)?.lowerBound
+        else {
+            throw MigrationError.invalidMigrationFile(file.version)
+        }
+
+        let upContent = String(content[upStart..<upEnd])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\"\"\"", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let downContent = String(content[downStart..<downEnd])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\"\"\"", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        debugPrint("Up content:", upContent)
+        debugPrint("Down content:", downContent)
+        return (up: upContent, down: downContent)
     }
 }

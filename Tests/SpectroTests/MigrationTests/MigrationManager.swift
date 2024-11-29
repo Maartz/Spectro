@@ -83,13 +83,20 @@ final class MigrationManagerTests: XCTestCase {
                 struct Migration: SpectroMigration {
                     func up() -> String {
                         \"\"\"
-                        -- Write your UP migration here
+                        CREATE TABLE IF NOT EXISTS user (
+                            id SERIAL PRIMARY KEY,
+                            username VARCHAR(50) NOT NULL,
+                            email VARCHAR(100) UNIQUE NOT NULL,
+                            password_hash TEXT NOT NULL,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        );
                         \"\"\"
                     }
 
                     func down() -> String {
                         \"\"\"
-                        -- Write your UP migration here
+                        DROP TABLE IF EXISTS user
                         \"\"\"
                     }
                 }
