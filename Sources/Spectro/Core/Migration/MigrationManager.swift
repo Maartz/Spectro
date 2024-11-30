@@ -325,13 +325,9 @@ public class MigrationManager {
     }
 
     private func executeMigration(_ sql: String, on db: SQLDatabase) async throws {
-        let statements = sql.components(separatedBy: ";\n").filter { !$0.isEmpty }.map {
-            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-        }.filter { !$0.isEmpty }
-            .map { $0 + ";" }
 
-        debugPrint("Executing \(statements.count) SQL statements")
-
+        let statements = try SQLStatementParser.parse(sql)
+        
         for (index, statement) in statements.enumerated() {
             debugPrint("Executing statement \(index + 1):", statement)
 
