@@ -96,8 +96,10 @@ public class MigrationManager {
             future.whenComplete { result in
                 switch result {
                 case .success(let records):
+                    debugPrint("Migration status retrieved")
                     continuation.resume(returning: records)
                 case .failure(let error):
+                    debugPrint("Failed to get migration status:", String(reflecting: error))
                     continuation.resume(throwing: error)
                 }
             }
@@ -143,27 +145,56 @@ public class MigrationManager {
         }.sorted { $0.version < $1.version }
     }
 
-    public func getPendingMigrations() async throws -> [MigrationFile] {
-        debugPrint("Starting to get pending migrations...")
+    private func getMigrationStatuses() async throws -> (
+        discovered: [MigrationFile], statuses: [String: MigrationStatus]
+    ) {
+        debugPrint("Discovering migrations...")
         let discoveredMigrations = try discoverMigrations()
-
         debugPrint("Discovered \(discoveredMigrations.count) migration files")
 
+        let appliedMigrations = try await getMigrationStatus()
+        debugPrint("Retrieved \(appliedMigrations.count) migration records")
+
+        let migrationStatuses = Dictionary(
+            uniqueKeysWithValues: appliedMigrations.map { ($0.version, $0.status) }
+        )
+
+        return (discoveredMigrations, migrationStatuses)
+    }
+
+    public func getPendingMigrations() async throws -> [MigrationFile] {
+        debugPrint("Getting pending migrations...")
         do {
-            let appliedMigrations = try await getMigrationStatus()
-            debugPrint("Found \(appliedMigrations.count) applied migrations")
+            let (migrations, statuses) = try await getMigrationStatuses()
 
-            let appliedVersions = Set(appliedMigrations.map(\.version))
-            let pendingMigrations = discoveredMigrations.filter {
-                !appliedVersions.contains($0.version)
+            let pendingMigrations = migrations.filter { migration in
+                if let status = statuses[migration.version] {
+                    return status == .pending
+                }
+                return true  // Not in database means pending
             }
-            debugPrint("Identified \(pendingMigrations.count) pending migrations")
 
+            debugPrint("Identified \(pendingMigrations.count) pending migrations")
             return pendingMigrations
         } catch {
-            debugPrint("Error while getting migration status:", String(reflecting: error))
+            debugPrint("Failed to get pending migrations:", String(reflecting: error))
             throw error
         }
+    }
+
+    func getAppliedMigrations() async throws -> [MigrationFile] {
+        debugPrint("Getting applied migrations...")
+        let (migrations, statuses) = try await getMigrationStatuses()
+
+        let appliedMigrations = migrations.filter { migration in
+            if let status = statuses[migration.version] {
+                return status != .pending
+            }
+            return false  // Not in database means not applied
+        }
+
+        debugPrint("Found \(appliedMigrations.count) applied migrations")
+        return appliedMigrations
     }
 
     func isValidUnixTimestamp(_ timestamp: String) -> Bool {
@@ -179,6 +210,25 @@ public class MigrationManager {
         return false
     }
 
+    public func runRollback() async throws {
+        try await ensureMigrationTableExists()
+        let appliedMigrations = try await getAppliedMigrations()
+        debugPrint("Starting to rollback \(appliedMigrations.count) migrations")
+        for migration in appliedMigrations {
+            debugPrint("Rolling back migration:", migration.version)
+            try await withTransaction { db in
+                debugPrint("Loading migration content")
+                let content = try self.loadMigrationContent(from: migration)
+                debugPrint("Executing migration:", migration.version)
+                try await self.executeMigration(content.down, on: db)
+                debugPrint("Updating migration status to pending")
+                try await self.updateMigrationStatus(migration, status: .pending)
+                debugPrint("Migration rolled back")
+                return ()
+            }
+        }
+    }
+
     public func runMigrations() async throws {
         try await ensureMigrationTableExists()
 
@@ -188,19 +238,10 @@ public class MigrationManager {
         for migration in pendingMigrations {
             debugPrint("Running migration:", migration.version)
             try await withTransaction { db in
-                debugPrint("Updating migration status to pending")
-                // try await self.updateMigrationStatus(migration, status: .pending)
                 debugPrint("Loading migration content")
                 let content = try self.loadMigrationContent(from: migration)
-                debugPrint("Loaded SQL:", content.up)
-                // TODO: add logic to run either up or down based on CLI input
-                // migrate -> up
-                // rollback -> down
-
-                // TODO: add a step param, rollback --step 2, runs 2 version in down
-                debugPrint("Executing migration")
+                debugPrint("Executing migration:", migration.version)
                 try await self.executeMigration(content.up, on: db)
-
                 debugPrint("Updating migration status to completed")
                 try await self.updateMigrationStatus(migration, status: .completed)
 
