@@ -6,8 +6,6 @@
 //
 
 import ArgumentParser
-
-import ArgumentParser
 import Dispatch
 
 @available(macOS 10.15, *)
@@ -19,7 +17,9 @@ struct SpectroCLI: AsyncParsableCommand {
             Migrate.self,
             Rollback.self,
             Status.self,
-            Test.self
+            Test.self,
+            CreateDatabase.self,
+            DropDatabase.self,
         ]
     )
 }
