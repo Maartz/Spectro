@@ -12,11 +12,7 @@ final class MigrationManagerTests: XCTestCase {
         spectro = try Spectro(username: "postgres", password: "postgres", database: "spectro_test")
         manager = spectro.migrationManager()
         let version = try await spectro.test()
-        debugPrint("Connected to PG: \(version)")
-
-        debugPrint("Setting up test migrations...")
         try setupTestMigrations()
-        debugPrint("Setup complete")
     }
 
     override func tearDown() async throws {
@@ -27,7 +23,6 @@ final class MigrationManagerTests: XCTestCase {
 
     private func cleanTestDatabase() async throws {
         try await withCheckedThrowingContinuation { continuation in
-            debugPrint("Starting database cleanup...")
             let future = spectro.pools.withConnection { conn in
                 conn.sql().raw(
                     """
@@ -45,10 +40,8 @@ final class MigrationManagerTests: XCTestCase {
             future.whenComplete { result in
                 switch result {
                 case .success:
-                    debugPrint("Database cleanup successful")
                     continuation.resume()
                 case .failure(let error):
-                    debugPrint("Database cleanup failed:", String(reflecting: error))
                     continuation.resume(throwing: error)
                 }
             }
@@ -57,16 +50,13 @@ final class MigrationManagerTests: XCTestCase {
 
     private func setupTestMigrations() throws {
         let testMigrationsPath = "Sources/Migrations"
-        debugPrint("Creating migrations directory at:", testMigrationsPath)
 
         if FileManager.default.fileExists(atPath: testMigrationsPath) {
-            debugPrint("Migrations directory already exists")
         } else {
             try FileManager.default.createDirectory(
                 atPath: testMigrationsPath,
                 withIntermediateDirectories: true
             )
-            debugPrint("Created migrations directory")
         }
 
         let migrations = [
@@ -76,7 +66,6 @@ final class MigrationManagerTests: XCTestCase {
 
         for migration in migrations {
             let path = "\(testMigrationsPath)/\(migration)"
-            debugPrint("Creating migration file:", path)
 
             let content = """
                 import Spectro
@@ -106,14 +95,11 @@ final class MigrationManagerTests: XCTestCase {
                 atomically: true,
                 encoding: .utf8
             )
-            debugPrint("Created migration file:", migration)
         }
     }
 
     func testDiscoverMigrations() throws {
-        debugPrint("Starting testDiscoverMigrations")
         let migrations = try manager.discoverMigrations()
-        debugPrint("Found migrations:", migrations)
         XCTAssertEqual(migrations.count, 2)
         XCTAssertEqual(migrations[0].version, "1700000000_create_users")
         XCTAssertEqual(migrations[1].version, "1700000001_add_user_email")
@@ -255,7 +241,6 @@ final class MigrationManagerTests: XCTestCase {
         try await manager.ensureMigrationTableExists()
 
         for status in MigrationStatus.allCases {
-            debugPrint("Status: \(status)")
             try await withCheckedThrowingContinuation { continuation in
                 let future = spectro.pools.withConnection { conn in
                     conn.sql().raw(
