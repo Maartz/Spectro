@@ -4,9 +4,9 @@ import PostgresKit
 import Spectro
 import SpectroCore
 
-struct DropDatabase: AsyncParsableCommand {
+struct Drop: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "drop_db",
+        commandName: "drop",
         abstract: "Drop an existing database"
     )
 
@@ -47,7 +47,8 @@ struct DropDatabase: AsyncParsableCommand {
                             return conn.eventLoop.makeFailedFuture(
                                 DatabaseError.doesNotExist(config.database))
                         }
-                        return conn.sql().raw("DROP DATABASE \"\(config.database)\"").run()
+                        return conn.sql().raw("DROP DATABASE \"\(unsafeRaw: config.database)\"")
+                            .run()
                     }
             }
 
@@ -77,4 +78,3 @@ struct DropDatabase: AsyncParsableCommand {
         }
     }
 }
-

@@ -4,9 +4,9 @@ import PostgresKit
 import Spectro
 import SpectroCore
 
-struct CreateDatabase: AsyncParsableCommand {
+struct Create: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "create_db", abstract: "Create a new database"
+        commandName: "create", abstract: "Create a new database"
     )
 
     @Option(name: .long, help: "Database Username")
@@ -45,7 +45,8 @@ struct CreateDatabase: AsyncParsableCommand {
                             return conn.eventLoop.makeFailedFuture(
                                 DatabaseError.alreadyExists(config.database))
                         }
-                        return conn.sql().raw("CREATE DATABASE \"\(config.database)\"").run()
+                        return conn.sql().raw("CREATE DATABASE \"\(unsafeRaw: config.database)\"")
+                            .run()
                     }
             }
 

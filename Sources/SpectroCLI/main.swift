@@ -17,9 +17,7 @@ struct SpectroCLI: AsyncParsableCommand {
             Migrate.self,
             Rollback.self,
             Status.self,
-            Test.self,
-            CreateDatabase.self,
-            DropDatabase.self,
+            Database.self,
         ]
     )
 }
