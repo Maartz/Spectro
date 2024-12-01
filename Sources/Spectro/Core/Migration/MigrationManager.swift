@@ -13,12 +13,6 @@ public class MigrationManager {
         self.migrationsPath = currentDirectory.appendingPathComponent("Sources/Migrations")
     }
 
-    public struct MigrationFile {
-        let version: String
-        let name: String
-        let filePath: URL
-    }
-
     struct MigrationRecord {
         let version: String
         let name: String
@@ -131,7 +125,7 @@ public class MigrationManager {
         }.sorted { $0.version < $1.version }
     }
 
-    private func getMigrationStatuses() async throws -> (
+    func getMigrationStatuses() async throws -> (
         discovered: [MigrationFile], statuses: [String: MigrationStatus]
     ) {
         let discoveredMigrations = try discoverMigrations()
@@ -142,7 +136,7 @@ public class MigrationManager {
         return (discoveredMigrations, migrationStatuses)
     }
 
-    public func getPendingMigrations() async throws -> [MigrationFile] {
+    func getPendingMigrations() async throws -> [MigrationFile] {
         do {
             let (migrations, statuses) = try await getMigrationStatuses()
 

@@ -6,13 +6,31 @@
 //
 
 import ArgumentParser
+import Foundation
+import Spectro
+import SpectroCore
+
+public protocol MigrationManaging {
+    func getMigrationStatuses() async throws -> (
+        discovered: [MigrationFile], statuses: [String: MigrationStatus]
+    )
+}
+
+extension MigrationManager: MigrationManaging {}
 
 struct Status: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "status"
+        commandName: "status", abstract: "Display the status of migrations"
     )
-    
-    func run() async throws {
-        // Implementation coming soon
+
+    var migrationManager: MigrationManager?
+
+    init() {}
+
+    init(migrationManager: MigrationManager) {
+        self.migrationManager = migrationManager
+    }
+
+    mutating func run() async throws {
     }
 }
