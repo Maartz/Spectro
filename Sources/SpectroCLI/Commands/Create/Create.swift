@@ -1,7 +1,7 @@
 import ArgumentParser
 import NIOCore
 import PostgresKit
-import Spectro
+@preconcurrency import Spectro
 import SpectroCore
 
 struct Create: AsyncParsableCommand {

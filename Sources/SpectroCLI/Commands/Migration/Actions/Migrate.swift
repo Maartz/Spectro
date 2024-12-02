@@ -1,5 +1,5 @@
 //
-//  Rollback.swift
+//  Migrate.swift
 //  SpectroCLI
 //
 //  Created by William MARTIN on 11/16/24.
@@ -8,14 +8,10 @@
 import ArgumentParser
 import Spectro
 
-struct Rollback: AsyncParsableCommand {
+struct Migrate: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "rollback"
+        commandName: "up"
     )
-
-    // TODO: Add a step option to rollback a specific number of migrations
-    @Option(help: "Number of migrations to rollback")
-    var step: Int?
 
     @Option(name: .long, help: "Database Username")
     var username: String?
@@ -39,14 +35,14 @@ struct Rollback: AsyncParsableCommand {
             port: config.port,
             username: config.username,
             password: config.password,
-            database: config.database
-        )
+            database: config.database)
 
         defer {
             spectro.shutdown()
         }
 
         let manager = spectro.migrationManager()
-        try await manager.runRollback()
+        try await manager.runMigrations()
+        print(manager.migrationAppliedMessages())
     }
 }

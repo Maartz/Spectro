@@ -14,10 +14,8 @@ struct SpectroCLI: AsyncParsableCommand {
         commandName: "spectro",
         subcommands: [
             Generate.self,
-            Migrate.self,
-            Rollback.self,
-            Status.self,
             Database.self,
+            Migration.self,
         ]
     )
 }

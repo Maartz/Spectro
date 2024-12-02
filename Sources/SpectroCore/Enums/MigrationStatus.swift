@@ -1,4 +1,4 @@
-public enum MigrationStatus: String, CaseIterable {
+public enum MigrationStatus: String, CaseIterable, Sendable {
     case pending
     case completed
     case failed

@@ -6,14 +6,20 @@
 //
 
 import Foundation
+import Spectro
 import SpectroCore
 
 public struct MigrationGenerator {
     private let fileManager: FileManager = .default
 
-    public func generate(name: String) throws {
+    private let migrationManager: MigrationManager
+    public init(migrationManager: MigrationManager) {
+        self.migrationManager = migrationManager
+    }
+
+    public func generate(name: String) async throws {
         let timestamp = Int(Date().timeIntervalSince1970)
-        let migrationName = name.snakeCase()  // Clear usage here
+        let migrationName = name.snakeCase()
         let structName = "M\(timestamp)\(migrationName.pascalCase())"
         let fileName = "\(timestamp)_\(migrationName).swift"
 
@@ -55,6 +61,13 @@ public struct MigrationGenerator {
             encoding: .utf8
         )
 
-        print("Created migration: \(fileName)")
+        let migration = MigrationRecord(
+            version: "\(timestamp)_\(migrationName)",
+            name: migrationName,
+            appliedAt: Date(),
+            status: .pending
+        )
+
+        try await migrationManager.insertMigrationRecord(migration)
     }
 }
