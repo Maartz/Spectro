@@ -27,4 +27,11 @@ protocol Repository {
         where conditions: [String: (String, ConditionValue)]
     ) async throws -> DataRow
     func executeRaw(_ sql: String, _ bindings: [Encodable]) async throws
+    func createTable<S: Schema>(_ s: S.Type) async throws
+}
+
+extension Repository {
+    func createTable<S: Schema>(_ schema: S.Type) async throws {
+        try await executeRaw(schema.createTable(), [])
+    }
 }

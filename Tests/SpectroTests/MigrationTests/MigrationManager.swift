@@ -11,7 +11,6 @@ final class MigrationManagerTests: XCTestCase {
     override func setUp() async throws {
         spectro = try Spectro(username: "postgres", password: "postgres", database: "spectro_test")
         manager = spectro.migrationManager()
-        let version = try await spectro.test()
         try setupTestMigrations()
     }
 

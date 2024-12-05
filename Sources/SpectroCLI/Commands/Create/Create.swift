@@ -49,7 +49,7 @@ struct Create: AsyncParsableCommand {
                             .run()
                     }
             }
-
+            // FIXME: ensureSchemaMigration is run here
             future.whenComplete { result in
                 switch result {
                 case .success:

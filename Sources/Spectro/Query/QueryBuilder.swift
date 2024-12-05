@@ -9,6 +9,27 @@ import Foundation
 import PostgresKit
 
 struct SQLBuilder {
+    static func buildSelect(_ query: Query) -> (sql: String, params: [PostgresData]) {
+        let whereClause = buildWhereClause(query.conditions)
+        let joinClause = query.joins.map { $0.sql }.joined(separator: " ")
+        let orderClause =
+            query.orderBy.isEmpty
+            ? ""
+            : " ORDER BY "
+                + query.orderBy.map { "\($0.field) \($0.direction.sql)" }.joined(separator: ", ")
+        let limitClause = query.limit.map { " LIMIT \($0)" } ?? ""
+        let offsetClause = query.offset.map { " OFFSET \($0)" } ?? ""
+
+        let sql = """
+                SELECT \(query.selections.joined(separator: ", ")) FROM \(query.table)
+                \(joinClause.isEmpty ? "" : " " + joinClause)
+                \(query.conditions.isEmpty ? "" : " WHERE " + whereClause.clause)
+                \(orderClause)\(limitClause)\(offsetClause)
+            """
+
+        return (sql: sql, params: whereClause.params)
+    }
+
     static func buildWhereClause(
         _ conditions: [String: (String, ConditionValue)]
     ) -> (clause: String, params: [PostgresData]) {

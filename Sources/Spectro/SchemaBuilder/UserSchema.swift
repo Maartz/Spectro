@@ -22,5 +22,30 @@ struct UserSchema: Schema {
         Field.description("login_count", .integer(defaultValue: 0))
         Field.description("last_login_at", .timestamp)
         Field.description("preferences", .jsonb)
+        Field.hasMany("posts", PostSchema.self)
+        Field.hasOne("profile", ProfileSchema.self)
+    }
+}
+
+struct PostSchema: Schema {
+    static let schemaName = "posts"
+
+    @SchemaBuilder
+    static var fields: [SField] {
+        Field.description("title", .string)
+        Field.description("content", .string)
+        Field.belongsTo(UserSchema.self)
+        Field.description("created_at", .timestamp)
+    }
+}
+
+struct ProfileSchema: Schema {
+    static let schemaName = "profiles"
+    
+    @SchemaBuilder
+    static var fields: [SField] {
+        Field.description("bio", .string)
+        Field.description("avatar_url", .string)
+        Field.belongsTo(UserSchema.self)
     }
 }

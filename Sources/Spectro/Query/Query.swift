@@ -13,6 +13,7 @@ public struct Query: Sendable {
     var orderBy: [OrderByField] = []
     var limit: Int?
     var offset: Int?
+    var joins: [JoinClause] = []
 
     private init(table: String, schema: Schema.Type) {
         self.table = table
@@ -65,18 +66,28 @@ public struct Query: Sendable {
         return copy
     }
 
+    func join(type: JoinType = .inner, table: String, on condition: String) -> Query {
+        var newQuery = self
+        newQuery.joins.append(JoinClause(type: type, table: table, condition: condition))
+        return newQuery
+    }
+
     func debugSQL() -> String {
         let whereClause = SQLBuilder.buildWhereClause(conditions)
         let whereString = conditions.isEmpty ? "" : " WHERE \(whereClause.clause)"
-        let orderClause = orderBy.isEmpty ? "" : " ORDER BY " + orderBy.map { "\($0.field) \($0.direction.sql)" }
-            .joined(separator: ", ")
+        let orderClause =
+            orderBy.isEmpty
+            ? ""
+            : " ORDER BY "
+                + orderBy.map { "\($0.field) \($0.direction.sql)" }
+                .joined(separator: ", ")
         let limitClause = limit.map { " LIMIT \($0)" } ?? ""
         let offsetClause = offset.map { " OFFSET \($0)" } ?? ""
-        
+
         return """
-        SELECT \(selections.joined(separator: ", "))
-        FROM \(table)\(whereString)\(orderClause)\(limitClause)\(offsetClause)
-        """
+            SELECT \(selections.joined(separator: ", "))
+            FROM \(table)\(whereString)\(orderClause)\(limitClause)\(offsetClause)
+            """
     }
 
 }

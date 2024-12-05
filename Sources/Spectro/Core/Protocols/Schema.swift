@@ -8,7 +8,7 @@
 import Foundation
 
 @dynamicMemberLookup
-protocol Schema {
+public protocol Schema {
     static var schemaName: String { get }
     static var fields: [SField] { get }
     static var includesImplicitID: Bool { get }
