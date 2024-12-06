@@ -9,6 +9,20 @@ public struct Relationship {
         self.foreignKey = foreignKey ?? "\(target.schemaName)_id"
     }
 
+    var joinType: JoinType {
+        switch type {
+            case .hasOne, .hasMany: return .left
+            case .belongsTo: return .inner
+        }
+    }
+
+    func defaultJoinClause(sourceAlias: String, targetAlias: String) -> String {
+        switch type {
+            case .hasOne, .hasMany: return "\(targetAlias).\(foreignKey) = \(sourceAlias).id"
+            case .belongsTo: return "\(sourceAlias).\(foreignKey) = \(targetAlias).id"
+        }
+    }
+
     func toJoinClause(fromTable: String) -> JoinClause {
         switch type {
         case .hasMany:

@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Spectro}",
+            "name": "Debug spectro",
+            "program": "${workspaceFolder:Spectro}/.build/debug/spectro",
+            "preLaunchTask": "swift: Build Debug spectro"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:Spectro}",
+            "name": "Release spectro",
+            "program": "${workspaceFolder:Spectro}/.build/release/spectro",
+            "preLaunchTask": "swift: Build Release spectro"
+        }
+    ]
+}

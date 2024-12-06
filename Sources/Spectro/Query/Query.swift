@@ -5,9 +5,10 @@
 //  Created by William MARTIN on 11/1/24.
 //
 
-public struct Query: Sendable {
+public struct Query<Root: Schema>: Sendable {
     let table: String
-    let schema: Schema.Type
+    let schema: Root.Type
+    let source: TableRef<Root>
     var conditions: [String: (String, ConditionValue)] = [:]
     var selections: [String] = ["*"]
     var orderBy: [OrderByField] = []
@@ -15,19 +16,20 @@ public struct Query: Sendable {
     var offset: Int?
     var joins: [JoinClause] = []
 
-    private init(table: String, schema: Schema.Type) {
-        self.table = table
+    private init(schema: Root.Type, alias: String? = nil) {
+        self.table = schema.schemaName
         self.schema = schema
+        self.source = TableRef(schema: schema, alias: alias ?? schema.schemaName)
     }
 
-    static func from(_ schema: any Schema.Type) -> Query {
-        return Query(table: schema.schemaName, schema: schema)
+    static func from(_ schema: Root.Type, as alias: String? = nil) -> Query<Root> {
+        return Query(schema: schema, alias: alias)
     }
 
-    func `where`(_ builder: (FieldSelector) -> Condition) -> Query {
+    func `where`(_ builder: (QueryableTable<Root>) -> Condition) -> Query<Root> {
         var copy = self
-        let selector = FieldSelector(schema: schema)
-        let condition = builder(selector)
+        let table = QueryableTable<Root>(alias: source.alias)
+        let condition = builder(table)
 
         switch condition {
         case let simple as QueryCondition:
@@ -40,14 +42,14 @@ public struct Query: Sendable {
         return copy
     }
 
-    func select(_ columns: (FieldSelector) -> [FieldPredicate]) -> Query {
+    func select(_ builder: (QueryableTable<Root>) -> [SelectableField]) ->  Query<Root>{
         var copy = self
-        let selector = FieldSelector(schema: schema)
-        copy.selections = columns(selector).map { $0.fieldName }
+        let table = QueryableTable<Root>(alias: source.alias)
+        copy.selections = builder(table).map(\.qualified)
         return copy
     }
 
-    func orderBy(_ builder: (FieldSelector) -> [OrderByField]) -> Query {
+    func orderBy(_ builder: (QueryableTable<Root>) -> [OrderByField]) ->  Query<Root> {
         var copy = self
         let selector = FieldSelector(schema: schema)
         copy.orderBy = builder(selector)
