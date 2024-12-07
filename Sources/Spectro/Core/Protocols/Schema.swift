@@ -8,22 +8,24 @@
 import Foundation
 
 @dynamicMemberLookup
-protocol Schema {
+public protocol Schema {
     static var schemaName: String { get }
     static var fields: [SField] { get }
     static var includesImplicitID: Bool { get }
+    static var uuidPK: Bool { get }
 
     static subscript(dynamicMember member: String) -> SField? { get }
 }
 
-//TODO: Add a decorator here for adding either
-//a uuid as PK or by default a bigInt
 extension Schema {
     public static var includesImplicitID: Bool { true }
+    public static var uuidPK: Bool { true }
 
     public static var allFields: [SField] {
         var combinedFields = fields
-        if includesImplicitID {
+        // TODO: add the case where uuidPK is false
+        // pass it as Integer
+        if uuidPK && includesImplicitID {
             combinedFields.insert(Field.description("id", .uuid), at: 0)
         }
         return combinedFields
