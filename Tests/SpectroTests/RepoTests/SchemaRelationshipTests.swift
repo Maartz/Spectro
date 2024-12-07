@@ -31,18 +31,16 @@ final class SchemaRelationshipTests: XCTestCase {
     }
     
     func testCreateTableSQL() {
-        let sql = UserSchema.createTable()
+        let statements = UserSchema.createTable()
+        let createUserTable = statements[0]
         
-        // Check primary key
-        XCTAssertTrue(sql.contains("id UUID PRIMARY KEY DEFAULT gen_random_uuid()"))
+        XCTAssertTrue(createUserTable.contains("id UUID PRIMARY KEY DEFAULT gen_random_uuid()"))
+        XCTAssertTrue(createUserTable.contains("posts UUID"))
+        XCTAssertTrue(createUserTable.contains("profile UUID"))
         
-        // Check relationship fields
-        XCTAssertTrue(sql.contains("posts UUID"))
-        XCTAssertTrue(sql.contains("profile UUID"))
-        
-        // Check foreign key constraints
-        let postsSql = PostSchema.createTable()
-        XCTAssertTrue(postsSql.contains("users UUID REFERENCES users(id)"))
+        let postStatements = PostSchema.createTable()
+        let createPostTable = postStatements[0]
+        XCTAssertTrue(createPostTable.contains("users UUID REFERENCES users(id)"))
     }
     
     func testFieldValidation() {
@@ -88,5 +86,35 @@ final class SchemaRelationshipTests: XCTestCase {
         if case .boolean(let defaultValue) = isActiveField?.type {
             XCTAssertEqual(defaultValue, true)
         }
+    }
+
+    func testManyToManyPivotTable() {
+        struct UserWithRoles: Schema {
+            static let schemaName = "users"
+            @SchemaBuilder
+            static var fields: [SField] {
+                Field.description("name", .string)
+                Field.manyToMany("roles", RoleSchema.self, through: "user_roles")
+            }
+        }
+        
+        struct RoleSchema: Schema {
+            static let schemaName = "roles"
+            @SchemaBuilder
+            static var fields: [SField] {
+                Field.description("name", .string)
+                Field.manyToMany("users", UserWithRoles.self, through: "user_roles")
+            }
+        }
+        
+        let statements = UserWithRoles.createTable()
+        XCTAssertEqual(statements.count, 2)
+        
+        let pivotTable = statements[1]
+        XCTAssertTrue(pivotTable.contains("CREATE TABLE IF NOT EXISTS user_roles"))
+        XCTAssertTrue(pivotTable.contains("user_id UUID REFERENCES users(id) ON DELETE CASCADE"))
+        XCTAssertTrue(pivotTable.contains("role_id UUID REFERENCES roles(id) ON DELETE CASCADE"))
+        XCTAssertTrue(pivotTable.contains("PRIMARY KEY (user_id, role_id)"))
+        XCTAssertTrue(pivotTable.contains("created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"))
     }
 }
