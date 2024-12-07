@@ -72,7 +72,8 @@ extension Schema {
         }
     }
     
-    static func createTable() -> String {
+    static func createTable() -> [String] {
+        var statements: [String] = []
         var fieldDefinitions = fields.map { field in
             var def = "\(field.name) \(field.type.sqlDefinition)"
             if let defaultValue = field.type.defaultValue {
@@ -89,11 +90,8 @@ extension Schema {
             }
 
             if case .relationship(let relationship) = field.type {
-                switch relationship.type {
-                    case .belongsTo:
-                        def += " REFERENCES \(relationship.foreignSchema.schemaName)(id)"
-                    case .hasOne, .hasMany:
-                        break
+                if case .belongsTo = relationship.type {
+                    def += " REFERENCES \(relationship.foreignSchema.schemaName)(id) ON DELETE CASCADE"
                 }
             }
 
@@ -101,17 +99,39 @@ extension Schema {
         }
         fieldDefinitions.insert("id UUID PRIMARY KEY DEFAULT gen_random_uuid()", at: 0)
 
-        return """
+        statements.append("""
             CREATE TABLE IF NOT EXISTS \(schemaName) (
                 \(fieldDefinitions.joined(separator: ",\n    "))
             );
-        """
+        """)
+
+        let pivotTables = fields.compactMap { field -> String? in
+            guard case .relationship(let rel) = field.type,
+                  case .manyToMany(let through) = rel.type else { return nil }
+            
+            let sourceId = "\(schemaName.singularize())_id"
+            let targetId = "\(field.name.singularize())_id"
+            
+            return """
+                CREATE TABLE IF NOT EXISTS \(through) (
+                    \(sourceId) UUID REFERENCES \(schemaName)(id) ON DELETE CASCADE,
+                    \(targetId) UUID REFERENCES \(rel.foreignSchema.schemaName)(id) ON DELETE CASCADE,
+                    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (\(sourceId), \(targetId))
+                );
+            """
+        }
+        
+        statements.append(contentsOf: pivotTables)
+        return statements        
     }
 }
 
 extension Repository {
     func createTable<S: Schema>(_ schema: S.Type) async throws {
-        try await executeRaw(schema.createTable(), [])
+        for statement in schema.createTable() {
+            try await executeRaw(statement, [])
+        }
     }
     
     func insert<S: Schema>(_ schema: S.Type, values: [String: Any]) async throws {
