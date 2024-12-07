@@ -62,11 +62,18 @@ extension Schema {
                 return .date(date)
             }
             return .null
+        
+        case .relationship:
+            if let uuid = value as? UUID { return .uuid(uuid) }
+            if let string = value as? String, let uuid = UUID(uuidString: string) {
+                return .uuid(uuid)
+            }
+            return .null
         }
     }
     
     static func createTable() -> String {
-        let fieldDefinitions = fields.map { field in
+        var fieldDefinitions = fields.map { field in
             var def = "\(field.name) \(field.type.sqlDefinition)"
             if let defaultValue = field.type.defaultValue {
                 switch defaultValue {
@@ -80,9 +87,20 @@ extension Schema {
                     break
                 }
             }
+
+            if case .relationship(let relationship) = field.type {
+                switch relationship.type {
+                    case .belongsTo:
+                        def += " REFERENCES \(relationship.foreignSchema.schemaName)(id)"
+                    case .hasOne, .hasMany:
+                        break
+                }
+            }
+
             return def
         }
-        
+        fieldDefinitions.insert("id UUID PRIMARY KEY DEFAULT gen_random_uuid()", at: 0)
+
         return """
             CREATE TABLE IF NOT EXISTS \(schemaName) (
                 \(fieldDefinitions.joined(separator: ",\n    "))
