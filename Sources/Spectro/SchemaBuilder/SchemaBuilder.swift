@@ -36,4 +36,12 @@ public enum Field {
     public static func belongsTo(_ name: String, _ schema: any Schema.Type) -> SField {
         SField(name: name, type: .relationship(.init(name: name, type: .belongsTo, foreignSchema: schema)))
     }
+    
+    public static func manyToMany(_ name: String, _ schema: any Schema.Type, through: String) -> SField {
+        SField(name: name, type: .relationship(.init(
+            name: name,
+            type: .manyToMany(through: through),
+            foreignSchema: schema
+        )))
+    }
 }
