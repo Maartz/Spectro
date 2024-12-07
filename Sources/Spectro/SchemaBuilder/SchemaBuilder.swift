@@ -24,4 +24,16 @@ public enum Field {
     ) -> SField {
         SField(name: name, type: type, isRedacted: isRedacted)
     }
+
+    public static func hasOne(_ name: String, _ schema: any Schema.Type) -> SField {
+        SField(name: name, type: .relationship(.init(name: name, type: .hasOne, foreignSchema: schema)))
+    }
+
+    public static func hasMany(_ name: String, _ schema: any Schema.Type) -> SField {
+        SField(name: name, type: .relationship(.init(name: name, type: .hasMany, foreignSchema: schema)))
+    }
+
+    public static func belongsTo(_ name: String, _ schema: any Schema.Type) -> SField {
+        SField(name: name, type: .relationship(.init(name: name, type: .belongsTo, foreignSchema: schema)))
+    }
 }

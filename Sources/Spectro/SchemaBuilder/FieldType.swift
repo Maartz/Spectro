@@ -14,6 +14,7 @@ public enum FieldType: Equatable {
     case jsonb
     case uuid
     case timestamp
+    case relationship(Relationship)
 
     var postgresType: PostgresDataType {
         switch self {
@@ -24,6 +25,7 @@ public enum FieldType: Equatable {
         case .jsonb: return .jsonb
         case .uuid: return .uuid
         case .timestamp: return .timestamp
+        case .relationship: return .uuid
         }
     }
 
@@ -36,6 +38,7 @@ public enum FieldType: Equatable {
         case .jsonb: return "JSONB"
         case .uuid: return "UUID"
         case .timestamp: return "TIMESTAMPTZ"
+        case .relationship: return "UUID"
         }
     }
 

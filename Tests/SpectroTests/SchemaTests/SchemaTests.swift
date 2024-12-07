@@ -19,8 +19,8 @@ final class SchemaTests: XCTestCase {
             schemaName, "users",
             "Expected schema name 'users' but got \(schemaName)")
         XCTAssertEqual(
-            fields.count, 12,
-            "Expected 12 fields in User schema, but got \(fields.count)")
+            fields.count, 14,
+            "Expected 14 fields in User schema, but got \(fields.count)")
 
         let nameField = UserSchema.name
         XCTAssertNotNil(nameField, "Expected 'name' field in User schema")
