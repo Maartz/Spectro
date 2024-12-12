@@ -11,6 +11,7 @@ A Swift ORM for PostgreSQL that prioritizes type safety and developer experience
 - 🔄 Database migrations with CLI support
 - 📦 Repository pattern implementation
 - ⚡️ Built on top of NIO and PostgresKit
+- 🔐 Environment-based configuration
 
 ## Installation
 
@@ -21,6 +22,21 @@ dependencies: [
 ```
 
 ## Quick Start
+
+### Configuration
+
+Create a .env file in your project root:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=your_database
+DB_USER=your_username
+DB_PASSWORD=your_password
+```
+
+Make sure to add .env to your .gitignore file to keep your credentials secure.
+
 
 ### Define Your Schema
 
