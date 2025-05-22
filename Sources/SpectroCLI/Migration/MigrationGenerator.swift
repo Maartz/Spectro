@@ -28,16 +28,18 @@ public struct MigrationGenerator {
 
             struct \(structName): Migration {
                 let version = "\(timestamp)_\(migrationName)"
-                
+
                 func up() -> String {
                     \"\"\"
                     -- Write your UP migration here
+                    -- Example: CREATE TABLE IF NOT EXISTS my_table (...)
                     \"\"\"
                 }
-                
+
                 func down() -> String {
                     \"\"\"
                     -- Write your DOWN migration here
+                    -- Example: DROP TABLE IF EXISTS my_table;
                     \"\"\"
                 }
             }
