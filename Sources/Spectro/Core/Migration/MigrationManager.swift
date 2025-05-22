@@ -56,8 +56,8 @@ public class MigrationManager {
                 conn.sql()
                     .raw(
                         """
-                            SELECT version, name, applied_at, status 
-                            FROM schema_migrations 
+                            SELECT version, name, applied_at, status
+                            FROM schema_migrations
                             ORDER BY version ASC
                         """
                     )
@@ -193,18 +193,40 @@ public class MigrationManager {
         }
 
         for migration in pendingMigrations {
-            try await withTransaction { db in
-                let content = try self.loadMigrationContent(from: migration)
-                try await self.executeMigration(content.up, on: db)
-                try await self.updateMigrationStatus(migration, status: .completed)
-                return ()
+            print("Applying migration: \(migration.version)...")
+
+            do {
+                try await withTransaction { db in
+                    let content = try self.loadMigrationContent(from: migration)
+                    try await self.executeMigration(content.up, on: db)
+                    try await self.updateMigrationStatus(migration, status: .completed)
+                    return ()
+                }
+                print("✅ Successfully applied: \(migration.version)")
+            } catch {
+                try await updateMigrationStatus(migration, status: .failed)
+                print("❌ Failed to apply migration: \(migration.version)")
+                print("Error: \(error.localizedDescription)")
+
+                if let psqlError = error as? PSQLError,
+                   let serverInfo = psqlError.serverInfo,
+                   let sqlState = serverInfo[.sqlState],
+                   sqlState == "42P07" {
+                    print("⚠️  Table already exists. You may want to:")
+                    print("   1. Drop the table manually and retry")
+                    print("   2. Mark this migration as completed if the table is correct")
+                    print("   3. Update the migration to use 'CREATE TABLE IF NOT EXISTS'")
+                }
+
+                throw error
             }
         }
 
         if pendingMigrations.count == 1 {
-            print("Sucessfully applied: 1 pending migration")
+            print("Successfully applied: 1 pending migration")
+        } else {
+            print("Successfully applied: \(pendingMigrations.count) pending migrations")
         }
-        print("Sucessfully applied: \(pendingMigrations.count) pending migrations")
     }
 
     private func withTransaction<T>(_ operation: @escaping (SQLDatabase) async throws -> T)
@@ -251,7 +273,7 @@ public class MigrationManager {
                     """
                         INSERT INTO schema_migrations (version, name, status)
                         VALUES (\(bind: migration.version), \(bind: migration.name), \(bind: status.rawValue)::migration_status)
-                        ON CONFLICT (version) 
+                        ON CONFLICT (version)
                         DO UPDATE SET status = \(bind: status.rawValue)::migration_status, applied_at = CURRENT_TIMESTAMP
                     """
                 ).run()
