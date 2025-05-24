@@ -8,4 +8,7 @@
 enum RepositoryError: Error, Equatable {
     case invalidQueryResult
     case unexpectedResultCount(String)
+    case invalidData(String)
+    case invalidChangeset([String: [String]])
+    case notFound(String)
 }
