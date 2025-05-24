@@ -7,21 +7,21 @@
 
 import ArgumentParser
 import Foundation
-import XCTest
+import Testing
 
+@testable import SpectroCLI
 @testable import SpectroCore
 
-struct Test: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
-        commandName: "test"
-    )
+@Test func testStringCaseConversion() throws {
+  let input = "createUsersTable"
+  let snakeCase = input.snakeCase()
+  let pascalCase = input.pascalCase()
 
-    @Argument(help: "String to convert")
-    var input: String
+  #assert(snakeCase, "create_users_table")
+  #assert(pascalCase, "CreateUsersTable")
+}
 
-    func run() throws {
-        print("Original: \(input)")
-        print("Snake case: \(input.snakeCase())")
-        print("Pascal case: \(input.pascalCase())")
-    }
+@Test func testTestCommandConfiguration() throws {
+  let config = Test.configuration
+  #assert(config.commandName, "test")
 }

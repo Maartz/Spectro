@@ -49,6 +49,7 @@ let package = Package(
             dependencies: [
                 "SpectroCore",
                 "Spectro",
+                "SpectroCLI",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Tests/SpectroTests"
