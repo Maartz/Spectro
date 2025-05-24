@@ -25,7 +25,7 @@ struct Migrate: AsyncParsableCommand {
   var database: String?
 
   func run() async throws {
-    try await ConfigurationManager.shared.loadEnvFile()
+    try ConfigurationManager.shared.loadEnvFile()
     var overrides: [String: String] = [:]
     if let username = username { overrides["username"] = username }
     if let password = password { overrides["password"] = password }

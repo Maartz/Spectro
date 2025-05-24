@@ -5,7 +5,7 @@ import PostgresKit
 import SpectroCore
 
 struct Create: AsyncParsableCommand {
-    static let configuration = await CommandConfiguration(
+    static let configuration = CommandConfiguration(
         commandName: "create", abstract: "Create a new database"
     )
 
@@ -25,27 +25,34 @@ struct Create: AsyncParsableCommand {
         if let username = username { overrides["username"] = username }
         if let password = password { overrides["password"] = password }
         if let database = database { overrides["database"] = database }
-        let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
+
+        let config = ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
 
         let spectro = try Spectro(
-            hostname: config.hostname, port: config.port, username: config.username,
-            password: config.password, database: "postgres")
+            hostname: config.hostname,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            database: "postgres"
+        )
 
         defer {
             spectro.shutdown()
         }
 
+        let databaseName = config.database
+
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, Error>) in
             let future = spectro.pools.withConnection { conn -> EventLoopFuture<Void> in
-                conn.sql().raw("SELECT 1 FROM pg_database WHERE datname = \(bind: config.database)")
+                conn.sql().raw("SELECT 1 FROM pg_database WHERE datname = \(bind: databaseName)")
                     .first()
                     .flatMap { exists -> EventLoopFuture<Void> in
                         if exists != nil {
                             return conn.eventLoop.makeFailedFuture(
-                                DatabaseError.alreadyExists(config.database))
+                                DatabaseError.alreadyExists(databaseName))
                         }
-                        return conn.sql().raw("CREATE DATABASE \"\(unsafeRaw: config.database)\"")
+                        return conn.sql().raw("CREATE DATABASE \"\(unsafeRaw: databaseName)\"")
                             .run()
                     }
             }
@@ -53,7 +60,7 @@ struct Create: AsyncParsableCommand {
             future.whenComplete { result in
                 switch result {
                 case .success:
-                    print("Database '\(config.database)' created successfully")
+                    print("Database '\(databaseName)' created successfully")
                     continuation.resume()
                 case .failure(let error):
                     let dbError: Error
@@ -63,7 +70,7 @@ struct Create: AsyncParsableCommand {
                         if let message = serverInfo[.message],
                             message.contains("already exists")
                         {
-                            dbError = DatabaseError.alreadyExists(config.database)
+                            dbError = DatabaseError.alreadyExists(databaseName)
                         } else {
                             dbError = DatabaseError.createdFailed(String(reflecting: error))
                         }

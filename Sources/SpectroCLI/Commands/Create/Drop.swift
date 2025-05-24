@@ -37,17 +37,19 @@ struct Drop: AsyncParsableCommand {
 
         defer { spectro.shutdown() }
 
+        let databaseName = config.database
+
         try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<Void, Error>) in
             let future = spectro.pools.withConnection { conn -> EventLoopFuture<Void> in
-                conn.sql().raw("SELECT 1 FROM pg_database WHERE datname = \(bind: config.database)")
+                conn.sql().raw("SELECT 1 FROM pg_database WHERE datname = \(bind: databaseName)")
                     .first()
                     .flatMap { exists -> EventLoopFuture<Void> in
                         if exists == nil {
                             return conn.eventLoop.makeFailedFuture(
-                                DatabaseError.doesNotExist(config.database))
+                                DatabaseError.doesNotExist(databaseName))
                         }
-                        return conn.sql().raw("DROP DATABASE \"\(unsafeRaw: config.database)\"")
+                        return conn.sql().raw("DROP DATABASE \"\(unsafeRaw: databaseName)\"")
                             .run()
                     }
             }
@@ -55,7 +57,7 @@ struct Drop: AsyncParsableCommand {
             future.whenComplete { result in
                 switch result {
                 case .success:
-                    print("Database '\(config.database)' dropped successfully")
+                    print("Database '\(databaseName)' dropped successfully")
                     continuation.resume()
                 case .failure(let error):
                     let dbError: Error
@@ -65,7 +67,7 @@ struct Drop: AsyncParsableCommand {
                         if let message = serverInfo[.message],
                             message.contains("does not exist")
                         {
-                            dbError = DatabaseError.doesNotExist(config.database)
+                            dbError = DatabaseError.doesNotExist(databaseName)
                         } else {
                             dbError = DatabaseError.dropFailed(String(reflecting: error))
                         }

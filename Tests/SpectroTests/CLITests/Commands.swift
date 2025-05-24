@@ -17,11 +17,11 @@ import Testing
   let snakeCase = input.snakeCase()
   let pascalCase = input.pascalCase()
 
-  #assert(snakeCase, "create_users_table")
-  #assert(pascalCase, "CreateUsersTable")
+  #expect(snakeCase == "create_users_table")
+  #expect(pascalCase == "CreateUsersTable")
 }
 
 @Test func testTestCommandConfiguration() throws {
   let config = Test.configuration
-  #assert(config.commandName, "test")
+  #expect(config.commandName == "test")
 }
