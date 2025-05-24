@@ -29,14 +29,14 @@ struct Rollback: AsyncParsableCommand {
   var database: String?
 
   func run() async throws {
-    try ConfigurationManager.shared.loadEnvFile()
+    try await ConfigurationManager.shared.loadEnvFile()
     var overrides: [String: String] = [:]
     if let username = username { overrides["username"] = username }
     if let password = password { overrides["password"] = password }
     if let database = database { overrides["database"] = database }
 
-    let config = ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
-    let spectro = try Spectro(
+    let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
+    let spectro = try await Spectro(
       hostname: config.hostname,
       port: config.port,
       username: config.username,

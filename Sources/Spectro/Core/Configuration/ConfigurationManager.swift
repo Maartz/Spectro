@@ -1,6 +1,7 @@
 import Foundation
 
-public struct DatabaseConfiguration {
+@MainActor
+public struct DatabaseConfiguration: Sendable {
     public let hostname: String
     public let port: Int
     public let username: String
@@ -21,6 +22,7 @@ enum ConfigurationError: Error {
     case invalidFormat(String)
 }
 
+@MainActor
 public class ConfigurationManager {
     public static let shared = ConfigurationManager()
     private var envConfig: [String: String] = [:]

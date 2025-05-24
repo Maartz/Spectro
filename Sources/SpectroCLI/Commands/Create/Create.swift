@@ -5,7 +5,7 @@ import PostgresKit
 import SpectroCore
 
 struct Create: AsyncParsableCommand {
-    static let configuration = CommandConfiguration(
+    static let configuration = await CommandConfiguration(
         commandName: "create", abstract: "Create a new database"
     )
 
@@ -25,7 +25,7 @@ struct Create: AsyncParsableCommand {
         if let username = username { overrides["username"] = username }
         if let password = password { overrides["password"] = password }
         if let database = database { overrides["database"] = database }
-        let config = ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
+        let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
 
         let spectro = try Spectro(
             hostname: config.hostname, port: config.port, username: config.username,

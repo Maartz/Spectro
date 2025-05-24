@@ -1,6 +1,6 @@
 import Foundation
 
-public struct MigrationFile {
+public struct MigrationFile: Sendable {
     public let version: String
     public let name: String
     public let filePath: URL
