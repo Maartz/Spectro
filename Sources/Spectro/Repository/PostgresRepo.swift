@@ -1,7 +1,7 @@
 import Foundation
 import PostgresKit
 
-public final class PostgresRepo: Repo {
+public final class PostgresRepo: Repo, @unchecked Sendable {
     private let db: DatabaseOperations
 
     public init(pools: EventLoopGroupConnectionPool<PostgresConnectionSource>) {
@@ -39,28 +39,24 @@ public final class PostgresRepo: Repo {
         }
 
         var values = changeset.changes
-        values["id"] = UUID()
-        values["created_at"] = Date()
-        values["updated_at"] = Date()
+        let id = UUID()
+        values["id"] = .uuid(id)
+        values["created_at"] = .date(Date())
+        values["updated_at"] = .date(Date())
 
         let sql = SQLBuilder.buildInsert(
             table: changeset.schema.schemaName,
-            values: values.mapValues { ConditionValue.value($0) }
+            values: values
         )
 
-        let rows: [DataRow] = try await db.executeQuery(
-            sql: sql.sql,
-            params: sql.params
-        ) { row in
-            // Convert PostgresRow to DataRow
-            DataRow(from: row)
+        try await db.executeUpdate(sql: sql.sql, params: sql.params)
+
+        // Fetch the inserted record
+        guard let model = try await get(T.self, id) else {
+            throw RepositoryError.invalidQueryResult
         }
 
-        guard let row = rows.first else {
-            throw RepositoryError.insertFailed
-        }
-
-        return try T.Model(from: row)
+        return model
     }
 
     public func update<T: Schema>(_ model: T.Model, _ changeset: Changeset<T>) async throws -> T.Model {
@@ -69,36 +65,29 @@ public final class PostgresRepo: Repo {
         }
 
         var values = changeset.changes
-        values["updated_at"] = Date()
+        values["updated_at"] = .date(Date())
 
         let sql = SQLBuilder.buildUpdate(
             table: changeset.schema.schemaName,
-            values: values.mapValues { ConditionValue.value($0) },
-            where: ["id": ("=", .uuid(model.id))],
-            returning: "*"
-        )
-
-        let rows: [DataRow] = try await db.executeQuery(
-            sql: sql.sql,
-            params: sql.params
-        ) { row in
-            DataRow(from: row)
-        }
-
-        guard let row = rows.first else {
-            throw RepositoryError.updateFailed
-        }
-
-        return try T.Model(from: row)
-    }
-
-    public func delete<T: Schema>(_ model: T.Model) async throws {
-        let sql = SQLBuilder.buildDelete(
-            table: T.schemaName,
-            where: ["id": ("=", .uuid(model.id))]
+            values: values,
+            where: ["id": ("=", ConditionValue.uuid(model.id))]
         )
 
         try await db.executeUpdate(sql: sql.sql, params: sql.params)
+
+        // Fetch the updated record
+        guard let updatedModel = try await get(T.self, model.id) else {
+            throw RepositoryError.invalidQueryResult
+        }
+
+        return updatedModel
+    }
+
+    public func delete<T: Schema>(_ model: T.Model) async throws {
+        let whereClause = SQLBuilder.buildWhereClause(["id": ("=", ConditionValue.uuid(model.id))])
+        let sql = "DELETE FROM \(T.schemaName) WHERE \(whereClause.clause)"
+
+        try await db.executeUpdate(sql: sql, params: whereClause.params)
     }
 
     public func preload<T: Schema>(_ models: [T.Model], _ associations: [String]) async throws -> [T.Model] {
@@ -108,12 +97,40 @@ public final class PostgresRepo: Repo {
     }
 
     private func executeQuery(_ query: Query) async throws -> [DataRow] {
-        let sql = query.toSQL()
+        let whereClause = SQLBuilder.buildWhereClause(query.conditions)
+        let orderClause = query.orderBy.isEmpty ? "" : " ORDER BY " + query.orderBy.map { "\($0.field) \($0.direction.sql)" }.joined(separator: ", ")
+        let limitClause = query.limit.map { " LIMIT \($0)" } ?? ""
+        let offsetClause = query.offset.map { " OFFSET \($0)" } ?? ""
+
+        // If selections is ["*"], get all schema field names instead
+        let actualSelections: [String]
+        if query.selections == ["*"] {
+            // Get all field names from the schema, including implicit ID
+            actualSelections = query.schema.allFields.map { $0.name }
+        } else {
+            actualSelections = query.selections
+        }
+
+        let sql = """
+            SELECT \(actualSelections.joined(separator: ", ")) FROM \(query.table)
+            \(query.conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
+            \(orderClause)\(limitClause)\(offsetClause)
+            """
+
         return try await db.executeQuery(
-            sql: sql.sql,
-            params: sql.params
+            sql: sql,
+            params: whereClause.params
         ) { row in
-            DataRow(values: row)
+            let randomAccessRow = row.makeRandomAccess()
+            var dict: [String: String] = [:]
+
+            for column in actualSelections {
+                if let columnValue = randomAccessRow[data: column].string {
+                    dict[column] = columnValue
+                }
+            }
+
+            return DataRow(values: dict)
         }
     }
 }

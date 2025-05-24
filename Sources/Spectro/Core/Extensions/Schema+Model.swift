@@ -15,7 +15,7 @@ public struct SchemaModel<S: Schema>: Identifiable {
     }
 
     self.id = id
-    self.data = row.values
+    self.data = row.values.mapValues { $0 as Any }
   }
 
   public subscript(dynamicMember keyPath: String) -> Any? {

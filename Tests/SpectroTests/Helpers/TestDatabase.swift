@@ -9,7 +9,7 @@ import NIOCore
 import PostgresKit
 import XCTest
 
-final class TestDatabase {
+final class TestDatabase: @unchecked Sendable {
     let eventLoop: EventLoopGroup
     let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
 
@@ -46,6 +46,7 @@ final class TestDatabase {
                                 name TEXT NOT NULL,
                                 email TEXT NOT NULL,
                                 age INT,
+                                password TEXT NOT NULL,
                                 score DOUBLE PRECISION,
                                 is_active BOOLEAN DEFAULT true,
                                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -64,14 +65,15 @@ final class TestDatabase {
                             SQLQueryString(
                                 """
                                     INSERT INTO users (
-                                        id, name, email, age, score, 
+                                        id, name, email, age, score,
                                         is_active, created_at, login_count
-                                    ) VALUES 
+                                    ) VALUES
                                     (
                                         '123e4567-e89b-12d3-a456-426614174000',
                                         'John Doe',
                                         'john@example.com',
                                         25,
+                                        'FOO',
                                         85.5,
                                         true,
                                         NOW(),
@@ -82,11 +84,13 @@ final class TestDatabase {
                                         'Jane Doe',
                                         'jane@example.com',
                                         30,
+                                        'FOO',
                                         92.5,
                                         true,
                                         NOW(),
                                         5
                                     )
+                                    ON CONFLICT (id) DO NOTHING
                                 """)
                         )
                         .run()

@@ -2,7 +2,7 @@ import Foundation
 
 public struct Changeset<T: Schema> {
   public let schema: T.Type
-  public var changes: [String: Any]
+  public var changes: [String: ConditionValue]
   public var errors: [String: [String]] = [:]
 
   public init(_ schema: T.Type, _ params: [String: Any]) {
