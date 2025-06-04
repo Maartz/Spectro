@@ -14,7 +14,7 @@ struct UserSchema: Schema {
         Field.description("age", .integer(defaultValue: 0))
         Field.description("password", .string, isRedacted: true)
         Field.description("email", .string)
-        Field.description("score", .integer(defaultValue: 0))
+        Field.description("score", .float(defaultValue: 0))
         Field.description("is_active", .boolean(defaultValue: true))
         Field.description("created_at", .timestamp)
         Field.description("updated_at", .timestamp)

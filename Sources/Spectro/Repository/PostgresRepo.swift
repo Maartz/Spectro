@@ -108,7 +108,12 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
             // Get all field names from the schema, including implicit ID
             actualSelections = query.schema.allFields.map { $0.name }
         } else {
-            actualSelections = query.selections
+            // Ensure ID is always included in selections
+            var selections = query.selections
+            if !selections.contains("id") {
+                selections.insert("id", at: 0)
+            }
+            actualSelections = selections
         }
 
         let sql = """

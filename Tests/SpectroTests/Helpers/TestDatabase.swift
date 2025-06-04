@@ -65,7 +65,7 @@ final class TestDatabase: @unchecked Sendable {
                             SQLQueryString(
                                 """
                                     INSERT INTO users (
-                                        id, name, email, age, score,
+                                        id, name, email, age, password, score,
                                         is_active, created_at, login_count
                                     ) VALUES
                                     (
@@ -73,7 +73,7 @@ final class TestDatabase: @unchecked Sendable {
                                         'John Doe',
                                         'john@example.com',
                                         25,
-                                        'FOO',
+                                        'password123',
                                         85.5,
                                         true,
                                         NOW(),
@@ -84,7 +84,7 @@ final class TestDatabase: @unchecked Sendable {
                                         'Jane Doe',
                                         'jane@example.com',
                                         30,
-                                        'FOO',
+                                        'password456',
                                         92.5,
                                         true,
                                         NOW(),
