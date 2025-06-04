@@ -5,10 +5,10 @@
 //  Created by William MARTIN on 11/3/24.
 //
 
-public struct DataRow: Sendable {
-    public let values: [String: String]
+public struct DataRow: @unchecked Sendable {
+    public let values: [String: Any]
 
-    init(values: [String: String]) {
+    init(values: [String: Any]) {
         self.values = values
     }
 }

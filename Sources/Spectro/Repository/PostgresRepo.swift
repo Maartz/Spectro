@@ -127,11 +127,22 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
             params: whereClause.params
         ) { row in
             let randomAccessRow = row.makeRandomAccess()
-            var dict: [String: String] = [:]
+            var dict: [String: Any] = [:]
 
             for column in actualSelections {
-                if let columnValue = randomAccessRow[data: column].string {
-                    dict[column] = columnValue
+                let columnData = randomAccessRow[data: column]
+                
+                // Try to convert to appropriate types
+                if let intValue = columnData.int {
+                    dict[column] = intValue
+                } else if let doubleValue = columnData.double {
+                    dict[column] = doubleValue
+                } else if let boolValue = columnData.bool {
+                    dict[column] = boolValue
+                } else if let uuidValue = columnData.uuid {
+                    dict[column] = uuidValue.uuidString
+                } else if let stringValue = columnData.string {
+                    dict[column] = stringValue
                 }
             }
 
