@@ -1,6 +1,15 @@
 import Foundation
 import PostgresKit
 
+// Performance optimization: Array chunking extension
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
+    }
+}
+
 public final class PostgresRepo: Repo, @unchecked Sendable {
     private let db: DatabaseOperations
 
@@ -100,14 +109,135 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
     public func preload<T: Schema>(_ models: [T.Model], _ associations: [String]) async throws -> [T.Model] {
         guard !models.isEmpty else { return models }
         
+        // Separate simple and nested associations for optimal processing
+        let (simpleAssociations, nestedAssociations) = partitionAssociations(associations)
+        
         var enrichedModels = models
         
-        // Process each association
-        for association in associations {
-            enrichedModels = try await preloadAssociation(enrichedModels, association)
+        // Process simple associations concurrently (massive performance boost)
+        if !simpleAssociations.isEmpty {
+            enrichedModels = try await preloadAssociationsConcurrently(enrichedModels, simpleAssociations)
+        }
+        
+        // Process nested associations sequentially (they depend on previous data)
+        for nestedAssociation in nestedAssociations {
+            enrichedModels = try await preloadAssociation(enrichedModels, nestedAssociation)
         }
         
         return enrichedModels
+    }
+    
+    /// Separate simple associations (posts, profile) from nested ones (posts.comments)
+    private func partitionAssociations(_ associations: [String]) -> (simple: [String], nested: [String]) {
+        var simple: [String] = []
+        var nested: [String] = []
+        
+        for association in associations {
+            if association.contains(".") {
+                nested.append(association)
+            } else {
+                simple.append(association)
+            }
+        }
+        
+        return (simple, nested)
+    }
+    
+    /// Process multiple simple associations concurrently for maximum performance
+    private func preloadAssociationsConcurrently<T: Schema>(_ models: [T.Model], _ associations: [String]) async throws -> [T.Model] {
+        // Prepare data for concurrent loading
+        let modelIds = models.map { $0.id }
+        
+        // Pre-extract foreign key data for belongsTo relationships
+        var foreignKeyMaps: [String: [UUID]] = [:]
+        for association in associations {
+            guard let relationship = T.relationship(named: association) else { continue }
+            
+            if case .belongsTo = relationship.type {
+                let foreignKeyValues = models.compactMap { model in
+                    model.data[relationship.localKey] as? String
+                }.compactMap { UUID(uuidString: $0) }
+                foreignKeyMaps[association] = foreignKeyValues
+            }
+        }
+        
+        // Load all associations concurrently
+        let associationResults = try await withThrowingTaskGroup(of: (String, [DataRow]).self) { group in
+            
+            // Launch concurrent tasks for each association
+            for association in associations {
+                // Capture foreign key map for this specific association to avoid data races
+                let foreignKeys = foreignKeyMaps[association]
+                group.addTask {
+                    let relatedData = try await self.loadAssociationData(
+                        T.self, 
+                        association, 
+                        modelIds, 
+                        foreignKeyMap: foreignKeys
+                    )
+                    return (association, relatedData)
+                }
+            }
+            
+            // Collect all results
+            var results: [String: [DataRow]] = [:]
+            for try await (association, data) in group {
+                results[association] = data
+            }
+            return results
+        }
+        
+        // Apply all associations to models efficiently
+        var enrichedModels = models
+        for association in associations {
+            guard let relatedData = associationResults[association] else { continue }
+            
+            // Get relationship info
+            guard let relationship = T.relationship(named: association) else {
+                throw RepositoryError.invalidRelationship("Relationship '\(association)' not found on \(T.schemaName)")
+            }
+            
+            // Associate the data using optimized hashmap lookup
+            enrichedModels = try associateData(enrichedModels, relatedData, relationship, association)
+        }
+        
+        return enrichedModels
+    }
+    
+    /// Load data for a specific association (optimized for concurrent execution)
+    private func loadAssociationData<T: Schema>(
+        _ schemaType: T.Type, 
+        _ association: String, 
+        _ modelIds: [UUID],
+        foreignKeyMap: [UUID]? = nil
+    ) async throws -> [DataRow] {
+        // Get the relationship info
+        guard let relationship = schemaType.relationship(named: association) else {
+            throw RepositoryError.invalidRelationship("Relationship '\(association)' not found on \(schemaType.schemaName)")
+        }
+        
+        // Load related data based on relationship type
+        switch relationship.type {
+        case .hasMany, .hasOne:
+            return try await loadRelatedData(
+                fromSchema: relationship.foreignSchema,
+                whereField: relationship.foreignKey,
+                matchingIds: modelIds
+            )
+            
+        case .belongsTo:
+            guard let foreignKeys = foreignKeyMap, !foreignKeys.isEmpty else { 
+                return [] 
+            }
+            return try await loadRelatedData(
+                fromSchema: relationship.foreignSchema,
+                whereField: "id",
+                matchingIds: foreignKeys
+            )
+            
+        case .manyToMany:
+            throw RepositoryError.notImplemented("Many-to-many preloading not yet implemented")
+        }
     }
     
     private func preloadAssociation<T: Schema>(_ models: [T.Model], _ association: String) async throws -> [T.Model] {
@@ -175,17 +305,28 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
     ) async throws -> [DataRow] {
         guard !matchingIds.isEmpty else { return [] }
         
-        // Build an IN query: WHERE field IN (id1, id2, id3, ...)
-        let query = Query.from(schema).where { selector in
-            // Use the IN condition with array of UUIDs
-            return QueryCondition(
-                field: whereField,
-                op: "IN",
-                value: .array(matchingIds.map { .uuid($0) })
-            )
+        // Performance optimization: Remove duplicates to reduce query size
+        let uniqueIds = Array(Set(matchingIds))
+        
+        // Performance optimization: Batch large ID lists to prevent SQL parameter limits
+        let batchSize = 1000  // Most databases handle 1000 IN parameters efficiently
+        var allResults: [DataRow] = []
+        
+        // Process IDs in batches for optimal performance
+        for batch in uniqueIds.chunked(into: batchSize) {
+            let query = Query.from(schema).where { selector in
+                return QueryCondition(
+                    field: whereField,
+                    op: "IN",
+                    value: .array(batch.map { .uuid($0) })
+                )
+            }
+            
+            let batchResults = try await executeQuery(query)
+            allResults.append(contentsOf: batchResults)
         }
         
-        return try await executeQuery(query)
+        return allResults
     }
     
     /// Load nested preloads on already-loaded data
