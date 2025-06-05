@@ -7,7 +7,7 @@
 
 import PostgresKit
 
-public struct QueryCondition: Condition {
+public struct QueryCondition: Condition, Sendable {
     let field: String
     let op: String
     let value: ConditionValue

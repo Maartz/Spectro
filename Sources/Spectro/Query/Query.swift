@@ -5,10 +5,14 @@
 //  Created by William MARTIN on 11/1/24.
 //
 
+import Foundation
+import PostgresKit
+
 public struct Query: Sendable {
     let table: String
     let schema: Schema.Type
     var conditions: [String: (String, ConditionValue)] = [:]
+    var compositeConditions: [CompositeCondition] = []
     var selections: [String] = ["*"]
     var orderBy: [OrderByField] = []
     var limit: Int?
@@ -36,7 +40,7 @@ public struct Query: Sendable {
         case let simple as QueryCondition:
             copy.conditions[simple.field] = (simple.op, simple.value)
         case let composite as CompositeCondition:
-            _ = SQLBuilder.buildWhereClause(composite)
+            copy.compositeConditions.append(composite)
         default:
             fatalError("Unexpected condition type")
         }
@@ -76,10 +80,22 @@ public struct Query: Sendable {
         // Build WHERE clauses for main table
         let whereClause = SQLBuilder.buildWhereClause(conditions)
         
+        // Build WHERE clauses for composite conditions
+        var compositeWhereClauses: [(clause: String, params: [PostgresData])] = []
+        var parameterOffset = whereClause.params.count
+        
+        for composite in compositeConditions {
+            let compositeWhere = SQLBuilder.buildWhereClause(composite)
+            // Adjust parameter indices to be sequential
+            let adjustedClause = adjustParameterNumbers(in: compositeWhere.clause, offset: parameterOffset)
+            compositeWhereClauses.append((clause: adjustedClause, params: compositeWhere.params))
+            parameterOffset += compositeWhere.params.count
+        }
+        
         // Build WHERE clauses for joined relationships
         let relationshipWhere = SQLBuilder.buildRelationshipConditions(
             relationshipConditions,
-            parameterOffset: whereClause.params.count
+            parameterOffset: parameterOffset
         )
         
         // Combine WHERE conditions
@@ -87,6 +103,12 @@ public struct Query: Sendable {
         
         if !whereClause.clause.isEmpty {
             allConditions.append(whereClause.clause)
+        }
+        
+        for compositeWhere in compositeWhereClauses {
+            if !compositeWhere.clause.isEmpty {
+                allConditions.append(compositeWhere.clause)
+            }
         }
         
         if !relationshipWhere.clause.isEmpty {
@@ -104,6 +126,29 @@ public struct Query: Sendable {
         SELECT \(selections.joined(separator: ", "))
         FROM \(table)\(joinClause)\(combinedWhereClause)\(orderClause)\(limitClause)\(offsetClause)
         """
+    }
+    
+    private func adjustParameterNumbers(in clause: String, offset: Int) -> String {
+        let regex = try! NSRegularExpression(pattern: #"\$(\d+)"#)
+        var result = clause
+        
+        let matches = regex.matches(
+            in: result,
+            range: NSRange(result.startIndex..<result.endIndex, in: result)
+        )
+        
+        for match in matches.reversed() {
+            if let matchRange = Range(match.range(at: 1), in: result),
+                let number = Int(result[matchRange])
+            {
+                let adjustedNumber = "$\(number + offset)"
+                if let fullMatchRange = Range(match.range, in: result) {
+                    result.replaceSubrange(fullMatchRange, with: adjustedNumber)
+                }
+            }
+        }
+        
+        return result
     }
 
 }

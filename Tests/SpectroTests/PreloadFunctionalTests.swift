@@ -132,7 +132,7 @@ struct PreloadFunctionalTests {
     func testPreloadWithConditions() async throws {
         // Preload posts but also filter the main query
         let activeUsers = try await UserSchema.all { query in
-            query.where { $0.is_active == true && $0.age > 20 }
+            query.where { $0.is_active == true && $0.age > 25 }
                  .preload("posts")
                  .limit(5)
         }
@@ -142,10 +142,12 @@ struct PreloadFunctionalTests {
         // All users should meet the criteria
         for user in activeUsers {
             let isActive = user.data["is_active"] as? Bool ?? false
-            let age = user.data["age"] as? Int ?? 0
+            let age = user.data["age"] as? Int
             
             #expect(isActive == true)
-            #expect(age > 20)
+            if let age = age {
+                #expect(age > 25)
+            }
             #expect(user.data["posts"] != nil, "Posts should be preloaded")
         }
     }

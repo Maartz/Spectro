@@ -6,7 +6,7 @@
 //
 import PostgresKit
 
-public struct CompositeCondition: Condition {
+public struct CompositeCondition: Condition, Sendable {
     enum CompositeType {
         case and
         case or

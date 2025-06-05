@@ -376,10 +376,22 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
         // Build WHERE clauses for main table
         let whereClause = SQLBuilder.buildWhereClause(query.conditions)
         
+        // Build WHERE clauses for composite conditions
+        var compositeWhereClauses: [(clause: String, params: [PostgresData])] = []
+        var parameterOffset = whereClause.params.count
+        
+        for composite in query.compositeConditions {
+            let compositeWhere = SQLBuilder.buildWhereClause(composite)
+            // Adjust parameter indices to be sequential
+            let adjustedClause = adjustParameterNumbers(in: compositeWhere.clause, offset: parameterOffset)
+            compositeWhereClauses.append((clause: adjustedClause, params: compositeWhere.params))
+            parameterOffset += compositeWhere.params.count
+        }
+        
         // Build WHERE clauses for joined relationships
         let relationshipWhere = SQLBuilder.buildRelationshipConditions(
             query.relationshipConditions,
-            parameterOffset: whereClause.params.count
+            parameterOffset: parameterOffset
         )
         
         // Combine WHERE conditions
@@ -389,6 +401,13 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
         if !whereClause.clause.isEmpty {
             allConditions.append(whereClause.clause)
             allParams.append(contentsOf: whereClause.params)
+        }
+        
+        for compositeWhere in compositeWhereClauses {
+            if !compositeWhere.clause.isEmpty {
+                allConditions.append(compositeWhere.clause)
+                allParams.append(contentsOf: compositeWhere.params)
+            }
         }
         
         if !relationshipWhere.clause.isEmpty {
@@ -468,5 +487,28 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
 
             return DataRow(values: dict)
         }
+    }
+    
+    private func adjustParameterNumbers(in clause: String, offset: Int) -> String {
+        let regex = try! NSRegularExpression(pattern: #"\$(\d+)"#)
+        var result = clause
+        
+        let matches = regex.matches(
+            in: result,
+            range: NSRange(result.startIndex..<result.endIndex, in: result)
+        )
+        
+        for match in matches.reversed() {
+            if let matchRange = Range(match.range(at: 1), in: result),
+                let number = Int(result[matchRange])
+            {
+                let adjustedNumber = "$\(number + offset)"
+                if let fullMatchRange = Range(match.range, in: result) {
+                    result.replaceSubrange(fullMatchRange, with: adjustedNumber)
+                }
+            }
+        }
+        
+        return result
     }
 }

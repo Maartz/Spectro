@@ -7,7 +7,7 @@
 
 import PostgresKit
 
-public protocol Condition {
+public protocol Condition: Sendable {
     func toSQL(parameterOffset: Int) -> (clause: String, params: [PostgresData])
 }
 extension Condition {
