@@ -47,10 +47,23 @@ extension Query {
         }
         
         var copy = self
+        let targetTableName = relationship.foreignSchema.schemaName
+        
+        // Check if this table is already joined and generate a unique alias if needed
+        let existingAliases = copy.joins.map { $0.alias ?? $0.targetSchema.schemaName }
+        let existingTableCount = existingAliases.filter { $0.starts(with: targetTableName) }.count
+        
+        let alias: String? = if existingTableCount > 0 {
+            "\(targetTableName)_\(existingTableCount + 1)"
+        } else {
+            nil // Use table name as-is for first occurrence
+        }
+        
         let joinInfo = JoinInfo(
             joinType: type,
             targetSchema: relationship.foreignSchema,
-            relationship: relationship
+            relationship: relationship,
+            alias: alias
         )
         copy.joins.append(joinInfo)
         return copy

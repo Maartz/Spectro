@@ -19,17 +19,44 @@ extension Query {
         // Create a new query for the target schema
         var newQuery = Query.from(relationship.foreignSchema)
         
-        // Add implicit join to connect the tables
+        // Copy existing joins from the current query
+        newQuery.joins = joins
+        
+        // Add implicit join to connect the current schema to the target schema
+        // Check if we need an alias for the current schema
+        let currentSchemaName = schema.schemaName
+        let existingAliases = newQuery.joins.map { $0.alias ?? $0.targetSchema.schemaName }
+        let existingTableCount = existingAliases.filter { $0.starts(with: currentSchemaName) }.count
+        
+        let sourceAlias: String? = if existingTableCount > 0 {
+            "\(currentSchemaName)_\(existingTableCount + 1)"
+        } else {
+            nil // Use table name as-is for first occurrence
+        }
+        
+        // Create a "reverse" relationship for the join (from target back to source)
+        let reverseRelationship = RelationshipInfo(
+            name: schema.schemaName.singularize(),
+            type: relationship.type.reverse(),
+            foreignSchema: schema,
+            localKey: relationship.foreignKey,
+            foreignKey: relationship.localKey
+        )
+        
         let joinInfo = JoinInfo(
             joinType: .inner,
-            targetSchema: relationship.foreignSchema,
-            relationship: relationship
+            targetSchema: schema,
+            relationship: reverseRelationship,
+            alias: sourceAlias
         )
         newQuery.joins.append(joinInfo)
         
-        // Copy existing conditions as they apply to the original schema
-        // We need to preserve the relationship context
-        newQuery.relationshipConditions[schema.schemaName] = conditions
+        // Copy existing conditions, but adjust the relationship context
+        newQuery.relationshipConditions = relationshipConditions
+        
+        // Add current schema conditions under the appropriate alias/name
+        let sourceTableRef = sourceAlias ?? currentSchemaName
+        newQuery.relationshipConditions[sourceTableRef] = conditions
         
         // Copy other query properties
         newQuery.limit = limit
