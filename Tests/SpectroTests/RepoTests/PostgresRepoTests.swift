@@ -26,13 +26,25 @@ struct PostgresRepoTests {
 
     @Test("Get all users with query filter")
     func testAllWithQuery() async throws {
+        // Create a test user to ensure we have predictable data
+        let changeset = Changeset(UserSchema.self, [
+            "name": "John Test Query",
+            "email": "john.query@test.com",
+            "age": 25,
+            "password": "test123"
+        ])
+        let testUser = try await Self.repo.insert(changeset)
+        
         let users = try await Self.repo.all(UserSchema.self) { query in
-            query.where { $0.name.like("John%") }
+            query.where { $0.name.like("John Test%") }
         }
 
-        #expect(users.count == 1, "Should find exactly one user named John")
-        let firstName = users.first?.data["name"] as? String
-        #expect(firstName == "John Doe", "Should be John Doe")
+        #expect(users.count >= 1, "Should find at least one user named John Test")
+        let foundUser = users.first { ($0.data["name"] as? String)?.hasPrefix("John Test") ?? false }
+        #expect(foundUser?.data["name"] as? String == "John Test Query", "Should find our test user")
+        
+        // Clean up
+        try await Self.repo.delete(testUser)
     }
 
     @Test("Get all users with select and order")

@@ -30,11 +30,24 @@ struct SchemaRepositoryTests {
     
     @Test("Schema.get() returns specific record")
     func testSchemaGet() async throws {
-        let id = UUID(uuidString: "123e4567-e89b-12d3-a456-426614174000")!
-        let user = try await UserSchema.get(id)
+        // Create a test user with a known ID
+        let changeset = Changeset(UserSchema.self, [
+            "name": "Test Get User",
+            "email": "test.get@example.com",
+            "age": 30,
+            "password": "test123"
+        ])
+        let createdUser = try await UserSchema.create(changeset)
+        
+        // Test the get method
+        let user = try await UserSchema.get(createdUser.id)
         
         #expect(user != nil, "Should find user with known ID")
-        #expect(user?.data["name"] as? String == "John Doe", "Should be John Doe")
+        #expect(user?.data["name"] as? String == "Test Get User", "Should find our test user")
+        #expect(user?.id == createdUser.id, "Should have the correct ID")
+        
+        // Clean up
+        try await createdUser.delete()
     }
     
     @Test("Schema.getOrFail() throws when not found")
@@ -81,12 +94,24 @@ struct SchemaRepositoryTests {
     
     @Test("Schema.query() with where clause")
     func testSchemaQueryWhere() async throws {
+        // Create a test user
+        let changeset = Changeset(UserSchema.self, [
+            "name": "Query Test User",
+            "email": "query.test@example.com",
+            "age": 25,
+            "password": "test123"
+        ])
+        let testUser = try await UserSchema.create(changeset)
+        
         let query = UserSchema.query()
-            .where { $0.name.like("John%") }
+            .where { $0.name.like("Query Test%") }
         let users = try await UserSchema.execute(query)
         
-        #expect(users.count == 1, "Should find exactly one user named John")
-        #expect(users.first?.data["name"] as? String == "John Doe")
+        #expect(users.count >= 1, "Should find at least one user")
+        #expect(users.first { $0.id == testUser.id }?.data["name"] as? String == "Query Test User")
+        
+        // Clean up
+        try await testUser.delete()
     }
     
     @Test("Schema.query() with select and order")
@@ -127,29 +152,68 @@ struct SchemaRepositoryTests {
     
     @Test("Query.exists() checks for existence")
     func testQueryExists() async throws {
+        // Create a test user
+        let changeset = Changeset(UserSchema.self, [
+            "name": "Exists Test User",
+            "email": "exists.test@example.com",
+            "age": 25,
+            "password": "test123"
+        ])
+        let testUser = try await UserSchema.create(changeset)
+        
         let query1 = UserSchema.query()
-            .where { $0.name.like("John%") }
+            .where { $0.name.like("Exists Test%") }
         let exists = try await UserSchema.executeExists(query1)
         
-        #expect(exists == true, "Should find John Doe")
+        #expect(exists == true, "Should find our test user")
         
         let query2 = UserSchema.query()
             .where { $0.name.eq("Nobody") }
         let notExists = try await UserSchema.executeExists(query2)
+        
+        // Clean up
+        try await testUser.delete()
         
         #expect(notExists == false, "Should not find Nobody")
     }
     
     @Test("Complex query with multiple conditions")
     func testComplexQuery() async throws {
+        // Create test users
+        let users = [
+            ("Alice Complex", 25),
+            ("Bob Complex", 30),
+            ("Charlie Complex", 18) // This one should be filtered out
+        ]
+        
+        var createdUsers: [UserSchema.Model] = []
+        for (name, age) in users {
+            let changeset = Changeset(UserSchema.self, [
+                "name": name,
+                "email": "\(name.lowercased().replacingOccurrences(of: " ", with: "."))@example.com",
+                "age": age,
+                "password": "test123",
+                "is_active": true
+            ])
+            createdUsers.append(try await UserSchema.create(changeset))
+        }
+        
         let query = UserSchema.query()
             .where { $0.age > 20 && $0.is_active == true }
             .select { [$0.name, $0.email, $0.age] }
             .orderBy { [$0.age.desc(), $0.name.asc()] }
             .limit(10)
-        let users = try await UserSchema.execute(query)
+        let results = try await UserSchema.execute(query)
         
-        #expect(users.allSatisfy { ($0.data["age"] as? Int ?? 0) > 20 })
+        // Should find Alice (25) and Bob (30), but not Charlie (18)
+        let complexUsers = results.filter { ($0.data["name"] as? String ?? "").contains("Complex") }
+        #expect(complexUsers.count == 2, "Should find 2 users over 20")
+        #expect(complexUsers.allSatisfy { ($0.data["age"] as? Int ?? 0) > 20 })
+        
+        // Clean up
+        for user in createdUsers {
+            try await user.delete()
+        }
     }
     
     // MARK: - Model Instance Methods

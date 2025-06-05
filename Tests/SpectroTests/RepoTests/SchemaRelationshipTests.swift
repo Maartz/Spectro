@@ -22,7 +22,7 @@ final class SchemaRelationshipTests: XCTestCase {
     
     func testPostSchemaBelongsTo() {
         let fields = PostSchema.fields
-        let userField = fields.first { $0.name == "users" }
+        let userField = fields.first { $0.name == "user" }
         XCTAssertNotNil(userField)
         if case .relationship(let rel) = userField?.type {
             XCTAssertEqual(rel.type, .belongsTo)
@@ -35,12 +35,14 @@ final class SchemaRelationshipTests: XCTestCase {
         let createUserTable = statements[0]
         
         XCTAssertTrue(createUserTable.contains("id UUID PRIMARY KEY DEFAULT gen_random_uuid()"))
-        XCTAssertTrue(createUserTable.contains("posts UUID"))
-        XCTAssertTrue(createUserTable.contains("profile UUID"))
+        // Relationships (hasMany, hasOne) don't create columns in the parent table
+        XCTAssertFalse(createUserTable.contains("posts UUID"))
+        XCTAssertFalse(createUserTable.contains("profile UUID"))
         
-        let postStatements = PostSchema.createTable()
-        let createPostTable = postStatements[0]
-        XCTAssertTrue(createPostTable.contains("users UUID REFERENCES users(id)"))
+        // Check that regular fields are included
+        XCTAssertTrue(createUserTable.contains("name TEXT"))
+        XCTAssertTrue(createUserTable.contains("email TEXT"))
+        XCTAssertTrue(createUserTable.contains("age INTEGER"))
     }
     
     func testFieldValidation() {

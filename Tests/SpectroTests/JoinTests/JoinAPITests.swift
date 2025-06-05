@@ -10,77 +10,37 @@ struct JoinAPITests {
     static let testDB = try! TestDatabase()
     static let repo = PostgresRepo(pools: testDB.pools)
     
-    init() async throws {
-        // Set up test tables
-        try await Self.testDB.setupTestTable()
-        try await Self.setupJoinTestData()
-    }
-    
-    static func setupJoinTestData() async throws {
-        // Create posts table
-        try await testDB.pools.withConnection { conn in
-            conn.sql().raw(SQLQueryString("""
-                CREATE TABLE IF NOT EXISTS posts (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    published BOOLEAN DEFAULT false,
-                    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at TIMESTAMPTZ
-                )
-            """)).run()
-        }.get()
-        
-        // Create comments table
-        try await testDB.pools.withConnection { conn in
-            conn.sql().raw(SQLQueryString("""
-                CREATE TABLE IF NOT EXISTS comments (
-                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    content TEXT NOT NULL,
-                    approved BOOLEAN DEFAULT false,
-                    post_id UUID REFERENCES posts(id) ON DELETE CASCADE,
-                    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-            """)).run()
-        }.get()
-        
-        // Insert test posts
-        try await testDB.pools.withConnection { conn in
-            conn.sql().raw(SQLQueryString("""
-                INSERT INTO posts (id, title, content, published, user_id) VALUES
-                ('11111111-1111-1111-1111-111111111111', 'First Post', 'Content of first post', true, '123e4567-e89b-12d3-a456-426614174000'),
-                ('22222222-2222-2222-2222-222222222222', 'Second Post', 'Content of second post', false, '123e4567-e89b-12d3-a456-426614174000'),
-                ('33333333-3333-3333-3333-333333333333', 'Third Post', 'Content of third post', true, '987fcdeb-51a2-43d7-9b18-315274198000')
-                ON CONFLICT (id) DO NOTHING
-            """)).run()
-        }.get()
-        
-        // Insert test comments
-        try await testDB.pools.withConnection { conn in
-            conn.sql().raw(SQLQueryString("""
-                INSERT INTO comments (id, content, approved, post_id, user_id) VALUES
-                ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'Great post!', true, '11111111-1111-1111-1111-111111111111', '987fcdeb-51a2-43d7-9b18-315274198000'),
-                ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'Nice work', false, '11111111-1111-1111-1111-111111111111', '123e4567-e89b-12d3-a456-426614174000'),
-                ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'Interesting', true, '33333333-3333-3333-3333-333333333333', '123e4567-e89b-12d3-a456-426614174000')
-                ON CONFLICT (id) DO NOTHING
-            """)).run()
-        }.get()
+    static func ensureSetup() async throws {
+        // Check if tables exist, if not set them up
+        try await testDB.setupTestTable()
     }
     
     // MARK: - Basic Join Tests
     
     @Test("Basic join with relationship")
     func testBasicJoin() async throws {
+        try await Self.ensureSetup()
+        
+        // First verify data exists
+        let allUsers = try await Self.repo.all(UserSchema.self)
+        print("Total users before join: \(allUsers.count)")
+        
         let query = UserSchema.query()
             .join("posts")
             .where { $0.name.eq("John Doe") }
         
-        let users = try await Self.repo.all(UserSchema.self) { _ in query }
+        print("Generated SQL: \(query.debugSQL())")
         
-        #expect(users.count >= 1, "Should find John Doe who has posts")
-        #expect(users.first?.data["name"] as? String == "John Doe")
+        do {
+            let users = try await Self.repo.all(UserSchema.self) { _ in query }
+            print("Join query found \(users.count) users")
+            
+            #expect(users.count >= 1, "Should find John Doe who has posts")
+            #expect(users.first?.data["name"] as? String == "John Doe")
+        } catch {
+            print("Error details: \(String(reflecting: error))")
+            throw error
+        }
     }
     
     @Test("Join with relationship conditions - ActiveRecord style")
