@@ -33,9 +33,13 @@ struct PostSchema: Schema {
 
     @SchemaBuilder
     static var fields: [SField] {
-        Field.description("Title", .string)
-        Field.description("Content", .string)
-        Field.belongsTo("users", UserSchema.self)
+        Field.description("title", .string)
+        Field.description("content", .string)
+        Field.description("published", .boolean(defaultValue: false))
+        Field.description("created_at", .timestamp)
+        Field.description("updated_at", .timestamp)
+        Field.belongsTo("user", UserSchema.self)
+        Field.hasMany("comments", CommentSchema.self)
     }
 }
 
@@ -46,6 +50,21 @@ struct ProfileSchema: Schema {
     static var fields: [SField] {
         Field.description("language", .string)
         Field.description("opt_in_email", .string)
-        Field.belongsTo("users", UserSchema.self)
+        Field.description("verified", .boolean(defaultValue: false))
+        Field.description("created_at", .timestamp)
+        Field.belongsTo("user", UserSchema.self)
+    }
+}
+
+struct CommentSchema: Schema {
+    static let schemaName: String = "comments"
+
+    @SchemaBuilder
+    static var fields: [SField] {
+        Field.description("content", .string)
+        Field.description("approved", .boolean(defaultValue: false))
+        Field.description("created_at", .timestamp)
+        Field.belongsTo("post", PostSchema.self)
+        Field.belongsTo("user", UserSchema.self)
     }
 }

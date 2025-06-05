@@ -269,7 +269,7 @@ struct PostgresRepoTests {
 
         let updatedUser = try await Self.repo.update(readUser, updateChangeset)
         #expect(updatedUser.data["name"] as? String == "Updated CRUD User", "Should update user correctly")
-        #expect(updatedUser.data["age"] as? String == "29", "Should update age correctly")
+        #expect(updatedUser.data["age"] as? Int == 29, "Should update age correctly")
 
         // Delete
         try await Self.repo.delete(updatedUser)

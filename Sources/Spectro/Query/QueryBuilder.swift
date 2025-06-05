@@ -9,6 +9,72 @@ import Foundation
 import PostgresKit
 
 struct SQLBuilder {
+    
+    /// Build JOIN clauses for a query
+    static func buildJoinClauses(_ joins: [JoinInfo], sourceTable: String) -> String {
+        return joins.map { join in
+            let relationshipInfo = join.relationship
+            let joinTable = join.targetSchema.schemaName
+            let alias = join.alias ?? joinTable
+            
+            let joinCondition: String
+            switch relationshipInfo.type {
+            case .belongsTo:
+                // Current table's foreign key = target table's primary key
+                joinCondition = "\(sourceTable).\(relationshipInfo.localKey) = \(alias).\(relationshipInfo.foreignKey)"
+            case .hasOne, .hasMany:
+                // Current table's primary key = target table's foreign key  
+                joinCondition = "\(sourceTable).\(relationshipInfo.localKey) = \(alias).\(relationshipInfo.foreignKey)"
+            case .manyToMany(let through):
+                // Handle many-to-many through pivot table
+                joinCondition = "\(sourceTable).id = \(through).\(relationshipInfo.localKey)"
+            }
+            
+            if alias != joinTable {
+                return "\(join.joinType.sql) \(joinTable) AS \(alias) ON \(joinCondition)"
+            } else {
+                return "\(join.joinType.sql) \(joinTable) ON \(joinCondition)"
+            }
+        }.joined(separator: " ")
+    }
+    
+    /// Build WHERE clauses for relationship conditions
+    static func buildRelationshipConditions(
+        _ relationshipConditions: [String: [String: (String, ConditionValue)]],
+        parameterOffset: Int = 0
+    ) -> (clause: String, params: [PostgresData]) {
+        var clauseParts: [String] = []
+        var params: [PostgresData] = []
+        var paramIndex = parameterOffset + 1
+        
+        for (relationshipName, conditions) in relationshipConditions {
+            for (column, (op, value)) in conditions {
+                let qualifiedColumn = "\(relationshipName).\(column)"
+                
+                switch value {
+                case .null:
+                    if op == "IS NULL" {
+                        clauseParts.append("\(qualifiedColumn) IS NULL")
+                    } else if op == "IS NOT NULL" {
+                        clauseParts.append("\(qualifiedColumn) IS NOT NULL")
+                    } else {
+                        fatalError("Unsupported operator \(op) for NULL value.")
+                    }
+                case .between(let start, let end):
+                    clauseParts.append("\(qualifiedColumn) BETWEEN $\(paramIndex) AND $\(paramIndex + 1)")
+                    params.append(try! start.toPostgresData())
+                    params.append(try! end.toPostgresData())
+                    paramIndex += 2
+                default:
+                    clauseParts.append("\(qualifiedColumn) \(op) $\(paramIndex)")
+                    params.append(try! value.toPostgresData())
+                    paramIndex += 1
+                }
+            }
+        }
+        
+        return (clause: clauseParts.joined(separator: " AND "), params: params)
+    }
     static func buildWhereClause(
         _ conditions: [String: (String, ConditionValue)]
     ) -> (clause: String, params: [PostgresData]) {

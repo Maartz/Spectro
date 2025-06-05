@@ -156,23 +156,30 @@ struct SchemaRepositoryTests {
     
     @Test("Model.update() modifies record")
     func testModelUpdate() async throws {
-        let id = UUID(uuidString: "123e4567-e89b-12d3-a456-426614174000")!
-        guard let user = try await UserSchema.get(id) else {
-            Issue.record("Test user not found")
-            return
-        }
+        // Create a new user for this test to avoid affecting other tests
+        let changeset = Changeset(UserSchema.self, [
+            "name": "Test Update User",
+            "email": "test.update@example.com",
+            "age": 25,
+            "password": "test123"
+        ])
         
-        let updated = try await user.update([
-            "name": "Updated John",
+        let newUser = try await UserSchema.create(changeset)
+        
+        let updated = try await newUser.update([
+            "name": "Updated Test User",
             "age": 30
         ])
         
-        #expect(updated.data["name"] as? String == "Updated John")
+        #expect(updated.data["name"] as? String == "Updated Test User")
         #expect(updated.data["age"] as? Int == 30)
         
         // Verify in database
-        let retrieved = try await UserSchema.get(id)
-        #expect(retrieved?.data["name"] as? String == "Updated John")
+        let retrieved = try await UserSchema.get(newUser.id)
+        #expect(retrieved?.data["name"] as? String == "Updated Test User")
+        
+        // Clean up
+        try await newUser.delete()
     }
     
     @Test("Model.delete() removes record")

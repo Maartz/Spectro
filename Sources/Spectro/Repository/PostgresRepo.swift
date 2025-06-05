@@ -97,52 +97,99 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
     }
 
     private func executeQuery(_ query: Query) async throws -> [DataRow] {
+        // Build JOIN clauses
+        let joinClause = query.joins.isEmpty ? "" : " " + SQLBuilder.buildJoinClauses(query.joins, sourceTable: query.table)
+        
+        // Build WHERE clauses for main table
         let whereClause = SQLBuilder.buildWhereClause(query.conditions)
+        
+        // Build WHERE clauses for joined relationships
+        let relationshipWhere = SQLBuilder.buildRelationshipConditions(
+            query.relationshipConditions,
+            parameterOffset: whereClause.params.count
+        )
+        
+        // Combine WHERE conditions
+        var allConditions: [String] = []
+        var allParams: [PostgresData] = []
+        
+        if !whereClause.clause.isEmpty {
+            allConditions.append(whereClause.clause)
+            allParams.append(contentsOf: whereClause.params)
+        }
+        
+        if !relationshipWhere.clause.isEmpty {
+            allConditions.append(relationshipWhere.clause)
+            allParams.append(contentsOf: relationshipWhere.params)
+        }
+        
+        let combinedWhereClause = allConditions.isEmpty ? "" : " WHERE " + allConditions.joined(separator: " AND ")
+        
+        // Build other clauses
         let orderClause = query.orderBy.isEmpty ? "" : " ORDER BY " + query.orderBy.map { "\($0.field) \($0.direction.sql)" }.joined(separator: ", ")
         let limitClause = query.limit.map { " LIMIT \($0)" } ?? ""
         let offsetClause = query.offset.map { " OFFSET \($0)" } ?? ""
 
-        // If selections is ["*"], get all schema field names instead
+        // Prepare selections with table prefixes for joins
         let actualSelections: [String]
         if query.selections == ["*"] {
-            // Get all field names from the schema, including implicit ID
-            actualSelections = query.schema.allFields.map { $0.name }
+            if query.joins.isEmpty {
+                // Keep the original behavior for simple queries
+                actualSelections = ["*"]
+            } else {
+                // For joins, we need to be explicit about columns to avoid conflicts
+                actualSelections = query.schema.allFields.map { "\(query.table).\($0.name)" }
+            }
         } else {
             // Ensure ID is always included in selections
             var selections = query.selections
             if !selections.contains("id") {
                 selections.insert("id", at: 0)
             }
-            actualSelections = selections
+            if query.joins.isEmpty {
+                actualSelections = selections
+            } else {
+                // Prefix with table name for joins
+                actualSelections = selections.map { "\(query.table).\($0)" }
+            }
         }
 
         let sql = """
-            SELECT \(actualSelections.joined(separator: ", ")) FROM \(query.table)
-            \(query.conditions.isEmpty ? "" : "WHERE " + whereClause.clause)
-            \(orderClause)\(limitClause)\(offsetClause)
+            SELECT \(actualSelections.joined(separator: ", ")) FROM \(query.table)\(joinClause)\(combinedWhereClause)\(orderClause)\(limitClause)\(offsetClause)
             """
 
         return try await db.executeQuery(
             sql: sql,
-            params: whereClause.params
+            params: allParams
         ) { row in
             let randomAccessRow = row.makeRandomAccess()
             var dict: [String: Any] = [:]
 
-            for column in actualSelections {
-                let columnData = randomAccessRow[data: column]
+            // Handle different selection types
+            let columnsToProcess: [String]
+            if actualSelections == ["*"] {
+                // For SELECT *, get all available columns from the row
+                columnsToProcess = query.schema.allFields.map { $0.name }
+            } else {
+                columnsToProcess = actualSelections
+            }
+
+            for column in columnsToProcess {
+                // For join queries, the column might be prefixed with table name
+                let actualColumnName = column.contains(".") ? column.split(separator: ".").last.map(String.init) ?? column : column
+                let columnData = randomAccessRow[data: actualColumnName]
                 
                 // Try to convert to appropriate types
                 if let intValue = columnData.int {
-                    dict[column] = intValue
+                    dict[actualColumnName] = intValue
                 } else if let doubleValue = columnData.double {
-                    dict[column] = doubleValue
+                    dict[actualColumnName] = doubleValue
                 } else if let boolValue = columnData.bool {
-                    dict[column] = boolValue
+                    dict[actualColumnName] = boolValue
                 } else if let uuidValue = columnData.uuid {
-                    dict[column] = uuidValue.uuidString
+                    dict[actualColumnName] = uuidValue.uuidString
                 } else if let stringValue = columnData.string {
-                    dict[column] = stringValue
+                    dict[actualColumnName] = stringValue
                 }
             }
 

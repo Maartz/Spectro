@@ -13,6 +13,10 @@ public struct Query: Sendable {
     var orderBy: [OrderByField] = []
     var limit: Int?
     var offset: Int?
+    // New fields for joins and relationships
+    var joins: [JoinInfo] = []
+    var relationshipConditions: [String: [String: (String, ConditionValue)]] = [:]
+    var preloadRelationships: [String] = []
 
     private init(table: String, schema: Schema.Type) {
         self.table = table
@@ -66,8 +70,31 @@ public struct Query: Sendable {
     }
 
     func debugSQL() -> String {
+        // Build JOIN clauses
+        let joinClause = joins.isEmpty ? "" : " " + SQLBuilder.buildJoinClauses(joins, sourceTable: table)
+        
+        // Build WHERE clauses for main table
         let whereClause = SQLBuilder.buildWhereClause(conditions)
-        let whereString = conditions.isEmpty ? "" : " WHERE \(whereClause.clause)"
+        
+        // Build WHERE clauses for joined relationships
+        let relationshipWhere = SQLBuilder.buildRelationshipConditions(
+            relationshipConditions,
+            parameterOffset: whereClause.params.count
+        )
+        
+        // Combine WHERE conditions
+        var allConditions: [String] = []
+        
+        if !whereClause.clause.isEmpty {
+            allConditions.append(whereClause.clause)
+        }
+        
+        if !relationshipWhere.clause.isEmpty {
+            allConditions.append(relationshipWhere.clause)
+        }
+        
+        let combinedWhereClause = allConditions.isEmpty ? "" : " WHERE " + allConditions.joined(separator: " AND ")
+        
         let orderClause = orderBy.isEmpty ? "" : " ORDER BY " + orderBy.map { "\($0.field) \($0.direction.sql)" }
             .joined(separator: ", ")
         let limitClause = limit.map { " LIMIT \($0)" } ?? ""
@@ -75,7 +102,7 @@ public struct Query: Sendable {
         
         return """
         SELECT \(selections.joined(separator: ", "))
-        FROM \(table)\(whereString)\(orderClause)\(limitClause)\(offsetClause)
+        FROM \(table)\(joinClause)\(combinedWhereClause)\(orderClause)\(limitClause)\(offsetClause)
         """
     }
 
