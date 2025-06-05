@@ -127,21 +127,3 @@ extension Schema {
     }
 }
 
-extension Repository {
-    func createTable<S: Schema>(_ schema: S.Type) async throws {
-        for statement in schema.createTable() {
-            try await executeRaw(statement, [])
-        }
-    }
-    
-    func insert<S: Schema>(_ schema: S.Type, values: [String: Any]) async throws {
-        let validatedValues = Dictionary(uniqueKeysWithValues:
-            schema.fields.compactMap { field in
-                let value = values[field.name]
-                return (field.name, schema.validateValue(value, for: field))
-            }
-        )
-        
-        try await insert(into: schema.schemaName, values: validatedValues)
-    }
-}

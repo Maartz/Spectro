@@ -114,7 +114,7 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
         
         var enrichedModels = models
         
-        // Process simple associations concurrently (massive performance boost)
+        // Process simple associations concurrently 
         if !simpleAssociations.isEmpty {
             enrichedModels = try await preloadAssociationsConcurrently(enrichedModels, simpleAssociations)
         }
