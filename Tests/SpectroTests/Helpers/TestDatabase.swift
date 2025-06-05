@@ -22,7 +22,7 @@ final class TestDatabase: @unchecked Sendable {
             port: 5432,
             username: "postgres",
             password: "postgres",
-            database: "postgres",
+            database: "spectro_test",
             tls: .disable
         )
 

@@ -11,4 +11,6 @@ enum RepositoryError: Error, Equatable {
     case invalidData(String)
     case invalidChangeset([String: [String]])
     case notFound(String)
+    case invalidRelationship(String)
+    case notImplemented(String)
 }

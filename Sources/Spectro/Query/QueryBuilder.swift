@@ -65,6 +65,17 @@ struct SQLBuilder {
                     params.append(try! start.toPostgresData())
                     params.append(try! end.toPostgresData())
                     paramIndex += 2
+                case .array(let values):
+                    if op == "IN" {
+                        let placeholders = (0..<values.count).map { "$\(paramIndex + $0)" }.joined(separator: ", ")
+                        clauseParts.append("\(qualifiedColumn) IN (\(placeholders))")
+                        for arrayValue in values {
+                            params.append(try! arrayValue.toPostgresData())
+                        }
+                        paramIndex += values.count
+                    } else {
+                        fatalError("Array values only supported with IN operator")
+                    }
                 default:
                     clauseParts.append("\(qualifiedColumn) \(op) $\(paramIndex)")
                     params.append(try! value.toPostgresData())
@@ -80,11 +91,12 @@ struct SQLBuilder {
     ) -> (clause: String, params: [PostgresData]) {
         var clauseParts: [String] = []
         var params: [PostgresData] = []
+        var paramIndex = 1
 
-        for (index, (column, (op, value))) in conditions.enumerated() {
+        for (column, (op, value)) in conditions {
             switch value {
             case .null:
-                if op == "IS NULL" {  // Changed this condition
+                if op == "IS NULL" {
                     clauseParts.append("\(column) IS NULL")
                 } else if op == "IS NOT NULL" {
                     clauseParts.append("\(column) IS NOT NULL")
@@ -93,12 +105,25 @@ struct SQLBuilder {
                 }
             case .between(let start, let end):
                 clauseParts.append(
-                    "\(column) BETWEEN $\(index + 1) AND $\(index + 2)")
+                    "\(column) BETWEEN $\(paramIndex) AND $\(paramIndex + 1)")
                 params.append(try! start.toPostgresData())
                 params.append(try! end.toPostgresData())
+                paramIndex += 2
+            case .array(let values):
+                if op == "IN" {
+                    let placeholders = (0..<values.count).map { "$\(paramIndex + $0)" }.joined(separator: ", ")
+                    clauseParts.append("\(column) IN (\(placeholders))")
+                    for arrayValue in values {
+                        params.append(try! arrayValue.toPostgresData())
+                    }
+                    paramIndex += values.count
+                } else {
+                    fatalError("Array values only supported with IN operator")
+                }
             default:
-                clauseParts.append("\(column) \(op) $\((index + 1))")
+                clauseParts.append("\(column) \(op) $\(paramIndex)")
                 params.append(try! value.toPostgresData())
+                paramIndex += 1
             }
         }
 

@@ -15,9 +15,16 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
         }
 
         let rows = try await executeQuery(baseQuery)
-        return try rows.map { row in
+        var models = try rows.map { row in
             try T.Model(from: row)
         }
+        
+        // Handle preloads if any are specified
+        if !baseQuery.preloadRelationships.isEmpty {
+            models = try await preload(models, baseQuery.preloadRelationships)
+        }
+        
+        return models
     }
 
     public func get<T: Schema>(_ schema: T.Type, _ id: UUID) async throws -> T.Model? {
@@ -91,9 +98,275 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
     }
 
     public func preload<T: Schema>(_ models: [T.Model], _ associations: [String]) async throws -> [T.Model] {
-        // TODO: Implement preloading
-        // This will be easier once we have join support
-        return models
+        guard !models.isEmpty else { return models }
+        
+        var enrichedModels = models
+        
+        // Process each association
+        for association in associations {
+            enrichedModels = try await preloadAssociation(enrichedModels, association)
+        }
+        
+        return enrichedModels
+    }
+    
+    private func preloadAssociation<T: Schema>(_ models: [T.Model], _ association: String) async throws -> [T.Model] {
+        // Handle nested preloads like "posts.comments"
+        let parts = association.split(separator: ".").map(String.init)
+        guard let firstAssociation = parts.first else {
+            throw RepositoryError.invalidRelationship("Empty association name")
+        }
+        
+        // Get the relationship info for the first association
+        guard let relationship = T.relationship(named: firstAssociation) else {
+            throw RepositoryError.invalidRelationship("Relationship '\(firstAssociation)' not found on \(T.schemaName)")
+        }
+        
+        // Extract IDs from models for foreign key lookup
+        let modelIds = models.map { $0.id }
+        
+        // Load related data based on relationship type
+        var relatedData: [DataRow]
+        
+        switch relationship.type {
+        case .hasMany, .hasOne:
+            // For hasMany/hasOne: foreign table has foreign_key pointing to our id
+            // SELECT * FROM posts WHERE user_id IN (...)
+            relatedData = try await loadRelatedData(
+                fromSchema: relationship.foreignSchema,
+                whereField: relationship.foreignKey,
+                matchingIds: modelIds
+            )
+            
+        case .belongsTo:
+            // For belongsTo: our table has foreign_key pointing to their id
+            // First extract the foreign key values from our models
+            let foreignKeyValues = models.compactMap { model in
+                model.data[relationship.localKey] as? String // Assuming UUID as string
+            }
+            guard !foreignKeyValues.isEmpty else { return models }
+            
+            // SELECT * FROM users WHERE id IN (...)
+            relatedData = try await loadRelatedData(
+                fromSchema: relationship.foreignSchema,
+                whereField: "id",
+                matchingIds: foreignKeyValues.compactMap { UUID(uuidString: $0) }
+            )
+            
+        case .manyToMany:
+            // TODO: Implement many-to-many preloading
+            throw RepositoryError.notImplemented("Many-to-many preloading not yet implemented")
+        }
+        
+        // Load nested associations if this is a nested preload
+        if parts.count > 1 {
+            let nestedAssociation = parts.dropFirst().joined(separator: ".")
+            relatedData = try await loadNestedPreloads(relatedData, nestedAssociation, relationship.foreignSchema)
+        }
+        
+        // Associate the loaded data with models
+        return try associateData(models, relatedData, relationship, firstAssociation)
+    }
+    
+    private func loadRelatedData(
+        fromSchema schema: any Schema.Type,
+        whereField: String,
+        matchingIds: [UUID]
+    ) async throws -> [DataRow] {
+        guard !matchingIds.isEmpty else { return [] }
+        
+        // Build an IN query: WHERE field IN (id1, id2, id3, ...)
+        let query = Query.from(schema).where { selector in
+            // Use the IN condition with array of UUIDs
+            return QueryCondition(
+                field: whereField,
+                op: "IN",
+                value: .array(matchingIds.map { .uuid($0) })
+            )
+        }
+        
+        return try await executeQuery(query)
+    }
+    
+    /// Load nested preloads on already-loaded data
+    private func loadNestedPreloads(
+        _ parentData: [DataRow],
+        _ nestedAssociation: String,
+        _ parentSchema: any Schema.Type
+    ) async throws -> [DataRow] {
+        guard !parentData.isEmpty else { return parentData }
+        
+        // Parse the nested association (could be multi-level like "comments.replies")
+        let parts = nestedAssociation.split(separator: ".").map(String.init)
+        guard let firstNestedAssociation = parts.first else { return parentData }
+        
+        // Get the relationship info from the parent schema
+        guard let relationship = parentSchema.relationship(named: firstNestedAssociation) else {
+            throw RepositoryError.invalidRelationship("Relationship '\(firstNestedAssociation)' not found on \(parentSchema.schemaName)")
+        }
+        
+        // Extract parent IDs for loading nested data
+        let parentIds = parentData.compactMap { row in
+            if let idString = row.values["id"] as? String {
+                return UUID(uuidString: idString)
+            }
+            return nil
+        }
+        
+        // Load the nested data
+        let nestedData: [DataRow]
+        switch relationship.type {
+        case .hasMany, .hasOne:
+            nestedData = try await loadRelatedData(
+                fromSchema: relationship.foreignSchema,
+                whereField: relationship.foreignKey,
+                matchingIds: parentIds
+            )
+        case .belongsTo:
+            // For belongsTo, extract foreign key values from parent data
+            let foreignKeyValues = parentData.compactMap { row in
+                row.values[relationship.localKey] as? String
+            }.compactMap { UUID(uuidString: $0) }
+            
+            nestedData = try await loadRelatedData(
+                fromSchema: relationship.foreignSchema,
+                whereField: "id",
+                matchingIds: foreignKeyValues
+            )
+        case .manyToMany:
+            throw RepositoryError.notImplemented("Many-to-many nested preloading not yet implemented")
+        }
+        
+        // If there are more nested levels, recursively process them
+        var finalNestedData = nestedData
+        if parts.count > 1 {
+            let deeperNestedAssociation = parts.dropFirst().joined(separator: ".")
+            finalNestedData = try await loadNestedPreloads(nestedData, deeperNestedAssociation, relationship.foreignSchema)
+        }
+        
+        // Associate the nested data with the parent data
+        return try associateNestedData(parentData, finalNestedData, relationship, firstNestedAssociation)
+    }
+    
+    /// Associate nested data with parent DataRows
+    private func associateNestedData(
+        _ parentData: [DataRow],
+        _ nestedData: [DataRow],
+        _ relationship: RelationshipInfo,
+        _ associationName: String
+    ) throws -> [DataRow] {
+        // Create a map of nested data for efficient lookup
+        var nestedMap: [String: [DataRow]] = [:]
+        
+        for row in nestedData {
+            let key: String
+            
+            switch relationship.type {
+            case .hasMany, .hasOne:
+                // Group by foreign key (e.g., comments grouped by post_id)
+                key = row.values[relationship.foreignKey] as? String ?? ""
+            case .belongsTo:
+                // Group by primary key (e.g., users grouped by id)
+                key = row.values["id"] as? String ?? ""
+            case .manyToMany:
+                throw RepositoryError.notImplemented("Many-to-many association not implemented")
+            }
+            
+            if nestedMap[key] == nil {
+                nestedMap[key] = []
+            }
+            nestedMap[key]?.append(row)
+        }
+        
+        // Associate data with each parent row
+        return parentData.map { parentRow in
+            var enrichedData = parentRow.values
+            
+            let lookupKey: String
+            switch relationship.type {
+            case .hasMany, .hasOne:
+                // Lookup by parent ID
+                lookupKey = parentRow.values["id"] as? String ?? ""
+            case .belongsTo:
+                // Lookup by foreign key value in parent
+                lookupKey = parentRow.values[relationship.localKey] as? String ?? ""
+            case .manyToMany:
+                lookupKey = ""
+            }
+            
+            switch relationship.type {
+            case .hasMany:
+                // Associate array of nested models
+                enrichedData[associationName] = nestedMap[lookupKey] ?? []
+            case .hasOne, .belongsTo:
+                // Associate single nested model
+                enrichedData[associationName] = nestedMap[lookupKey]?.first
+            case .manyToMany:
+                break // Not implemented
+            }
+            
+            return DataRow(values: enrichedData)
+        }
+    }
+    
+    private func associateData<T: Schema>(
+        _ models: [T.Model],
+        _ relatedData: [DataRow],
+        _ relationship: RelationshipInfo,
+        _ associationName: String
+    ) throws -> [T.Model] {
+        // Create a map of related data for efficient lookup
+        var relatedMap: [String: [DataRow]] = [:]
+        
+        for row in relatedData {
+            let key: String
+            
+            switch relationship.type {
+            case .hasMany, .hasOne:
+                // Group by foreign key (e.g., posts grouped by user_id)
+                key = row.values[relationship.foreignKey] as? String ?? ""
+            case .belongsTo:
+                // Group by primary key (e.g., users grouped by id)
+                key = row.values["id"] as? String ?? ""
+            case .manyToMany:
+                throw RepositoryError.notImplemented("Many-to-many association not implemented")
+            }
+            
+            if relatedMap[key] == nil {
+                relatedMap[key] = []
+            }
+            relatedMap[key]?.append(row)
+        }
+        
+        // Associate data with each model
+        return try models.map { model in
+            var modelData = model.data
+            
+            let lookupKey: String
+            switch relationship.type {
+            case .hasMany, .hasOne:
+                // For hasMany/hasOne: lookup by our ID (related data is grouped by foreign key pointing to us)
+                lookupKey = model.id.uuidString
+            case .belongsTo:
+                // For belongsTo: lookup by foreign key value in our model (related data is grouped by their ID)
+                lookupKey = model.data[relationship.localKey] as? String ?? ""
+            case .manyToMany:
+                throw RepositoryError.notImplemented("Many-to-many association not implemented")
+            }
+            
+            switch relationship.type {
+            case .hasMany:
+                // Associate array of related models
+                modelData[associationName] = relatedMap[lookupKey] ?? []
+            case .hasOne, .belongsTo:
+                // Associate single related model
+                modelData[associationName] = relatedMap[lookupKey]?.first
+            case .manyToMany:
+                throw RepositoryError.notImplemented("Many-to-many association not implemented")
+            }
+            
+            return try T.Model(from: DataRow(values: modelData))
+        }
     }
 
     private func executeQuery(_ query: Query) async throws -> [DataRow] {
@@ -138,7 +411,7 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
                 actualSelections = ["*"]
             } else {
                 // For joins, we need to be explicit about columns to avoid conflicts
-                actualSelections = query.schema.allFields.map { "\(query.table).\($0.name)" }
+                actualSelections = query.schema.databaseFields.map { "\(query.table).\($0.name)" }
             }
         } else {
             // Ensure ID is always included in selections
@@ -168,8 +441,8 @@ public final class PostgresRepo: Repo, @unchecked Sendable {
             // Handle different selection types
             let columnsToProcess: [String]
             if actualSelections == ["*"] {
-                // For SELECT *, get all available columns from the row
-                columnsToProcess = query.schema.allFields.map { $0.name }
+                // For SELECT *, get only database columns (exclude relationships)
+                columnsToProcess = query.schema.databaseFields.map { $0.name }
             } else {
                 columnsToProcess = actualSelections
             }

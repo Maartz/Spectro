@@ -18,6 +18,7 @@ public indirect enum ConditionValue: Sendable, Equatable, Encodable {
     case null
     case jsonb(String)
     case between(ConditionValue, ConditionValue)
+    case array([ConditionValue])
 
     public static func value(_ value: Any) -> ConditionValue {
         switch value {
@@ -36,6 +37,8 @@ public indirect enum ConditionValue: Sendable, Equatable, Encodable {
             return .uuid(uuid)
         case let date as Date:
             return .date(date)
+        case let array as [Any]:
+            return .array(array.map { ConditionValue.value($0) })
         case is NSNull:
             return .null
         default:
@@ -61,6 +64,8 @@ public indirect enum ConditionValue: Sendable, Equatable, Encodable {
             return try PostgresData(jsonb: value)
         case .between( _, _):
             fatalError("BETWEEN should be handled by SQLBuilder")
+        case .array(_):
+            fatalError("Array conditions should be handled by SQLBuilder")
         case .null:
             return PostgresData(type: .null, value: nil)
         }
