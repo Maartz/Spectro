@@ -10,9 +10,7 @@ struct PostgresRepoTests {
     static let testDB = try! TestDatabase()
     static let repo = PostgresRepo(pools: testDB.pools)
 
-    init() async throws {
-        try await Self.testDB.setupTestTable()
-    }
+    // No database setup needed - tables should exist from external setup
 
     // MARK: - All Tests
 

@@ -7,15 +7,9 @@ import NIOCore
 @Suite("Schema Repository API Tests")
 struct SchemaRepositoryTests {
     
-    static let testDB = try! TestDatabase()
-    static let repo = PostgresRepo(pools: testDB.pools)
-    
-    init() async throws {
-        // Configure the repository globally
-        RepositoryConfiguration.configure(with: Self.repo)
-        
-        // Set up test table
-        try await Self.testDB.setupTestTable()
+    init() async {
+        // Just configure the repository, don't manage database schema
+        await TestSetup.configure()
     }
     
     // MARK: - Direct Schema Methods
