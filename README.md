@@ -1,18 +1,17 @@
 # Spectro 🌈
 
-A modern Swift ORM for PostgreSQL that prioritizes type safety, developer experience, and elegant APIs. Spectro is heavily inspired by Elixir's Ecto library, bringing its composable query patterns and relationship handling to the Swift ecosystem.
+A modern, type-safe Swift ORM for PostgreSQL built with Swift 6 and property wrappers. Spectro delivers beautiful APIs inspired by ActiveRecord and Ecto, with actor-based concurrency and zero crashes in production.
 
 ## ✨ Features
 
-- 🏗️ **Type-safe schema definitions** with rich field types and relationships
-- 🔍 **Expressive query builder** with method chaining and composable queries
-- 🔗 **Advanced relationship handling** - hasMany, hasOne, belongsTo with join support
-- 💫 **Beautiful API design** - ActiveRecord-style convenience methods with repository pattern power
-- 🔄 **Database migrations** with comprehensive CLI support
-- 📦 **Repository pattern** with global configuration and schema-level methods
-- ⚡️ **Built on Swift NIO** - async/await throughout, high performance
-- 🔐 **Environment-based configuration** for secure credential management
-- 🎯 **Swift 6 compatible** with full concurrency support
+- 🏗️ **Property wrapper schemas** - Beautiful `@ID`, `@Column`, `@Timestamp` syntax
+- 🔍 **KeyPath-based queries** - Type-safe queries with compile-time guarantees
+- ⚡️ **Swift 6 + Actor concurrency** - Thread-safe database operations
+- 🔐 **Production-ready** - Zero `fatalError()` calls, comprehensive error handling
+- 🔄 **Transaction support** - ACID compliance with automatic rollback
+- 📦 **Clean repository pattern** - Explicit data operations without global state
+- 🎯 **Inspired by ActiveRecord/Ecto** - More type-safe, more explicit, more Swift
+- 🚀 **Built on PostgresNIO** - High performance async/await throughout
 
 ## 📦 Installation
 
@@ -26,371 +25,420 @@ dependencies: [
 
 ## 🚀 Quick Start
 
-### 1. Database Setup
-
-Create your PostgreSQL database and configure access:
-
-```bash
-# Create database
-createdb your_app_db
-
-# For testing (recommended)
-createdb your_app_test_db
-```
-
-### 2. Environment Configuration
-
-Create a `.env` file in your project root:
-
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=your_app_db
-DB_USER=your_username
-DB_PASSWORD=your_password
-
-# Test database
-TEST_DB_NAME=your_app_test_db
-```
-
-⚠️ **Important**: Add `.env` to your `.gitignore` to keep credentials secure.
-
-### 3. Define Your Schemas
-
-Schemas define your data structure and relationships:
+### 1. Define Your Schema
 
 ```swift
 import Spectro
 
-struct UserSchema: Schema {
-    static let schemaName = "users"
+struct User: Schema {
+    static let tableName = "users"
     
-    @SchemaBuilder
-    static var fields: [SField] {
-        Field.description("name", .string)
-        Field.description("email", .string)
-        Field.description("age", .integer(defaultValue: 0))
-        Field.description("is_active", .boolean(defaultValue: true))
-        Field.description("created_at", .timestamp)
-        
-        // Relationships
-        Field.hasMany("posts", PostSchema.self)
-        Field.hasOne("profile", ProfileSchema.self)
+    @ID var id: UUID
+    @Column var name: String = ""
+    @Column var email: String = ""
+    @Column var age: Int = 0
+    @Column var isActive: Bool = true
+    @Timestamp var createdAt: Date = Date()
+    @Timestamp var updatedAt: Date = Date()
+    
+    init() {}
+    
+    init(name: String, email: String, age: Int) {
+        self.name = name
+        self.email = email
+        self.age = age
     }
 }
 
-struct PostSchema: Schema {
-    static let schemaName = "posts"
+struct Post: Schema {
+    static let tableName = "posts"
     
-    @SchemaBuilder
-    static var fields: [SField] {
-        Field.description("title", .string)
-        Field.description("content", .string)
-        Field.description("published", .boolean(defaultValue: false))
-        Field.description("created_at", .timestamp)
-        
-        // Relationships
-        Field.belongsTo("user", UserSchema.self)
-        Field.hasMany("comments", CommentSchema.self)
-    }
+    @ID var id: UUID
+    @Column var title: String = ""
+    @Column var content: String = ""
+    @Column var published: Bool = false
+    @ForeignKey var userId: UUID = UUID()
+    @Timestamp var createdAt: Date = Date()
+    
+    init() {}
 }
 ```
 
-### 4. Initialize Spectro
+### 2. Initialize Spectro
 
 ```swift
 import Spectro
 
-// Configure the database connection
+// Create connection
 let spectro = try Spectro(
-    username: "your_username",
-    password: "your_password", 
-    database: "your_app_db"
+    username: "postgres",
+    password: "your_password",
+    database: "your_database"
 )
 
-// Configure global repository (for schema-level methods)
-let repo = PostgresRepo(pools: spectro.pools)
-RepositoryConfiguration.configure(with: repo)
+// Get repository
+let repo = spectro.repository()
 ```
 
-## 💡 Core Concepts
-
-### Schema-Level API (Recommended)
-
-Spectro provides a beautiful, ActiveRecord-inspired API that works at the schema level:
+### 3. Beautiful CRUD Operations
 
 ```swift
-// Get all users
-let users = try await UserSchema.all()
+// Create with type-safe initialization
+let user = User(name: "Alice", email: "alice@example.com", age: 25)
+let savedUser = try await repo.insert(user)
 
-// Query with conditions
-let activeUsers = try await UserSchema.all { query in
-    query.where { $0.is_active == true && $0.age > 18 }
-         .orderBy { [$0.name.asc()] }
-         .limit(10)
-}
+// Type-safe KeyPath queries
+let adults = try await repo.query(User.self)
+    .where(\.age, .greaterThan, 18)
+    .where(\.isActive, .equals, true)
+    .orderBy(\.createdAt, .desc)
+    .limit(10)
+    .all()
 
-// Find by ID
-let user = try await UserSchema.get(userId)
-let user = try await UserSchema.getOrFail(userId) // Throws if not found
+// Single record queries
+let user = try await repo.get(User.self, id: userId)
+let user = try await repo.getOrFail(User.self, id: userId)
 
-// Create new records
-let user = try await UserSchema.create([
-    "name": "John Doe",
-    "email": "john@example.com",
-    "age": 30
+// Updates
+let updated = try await repo.update(User.self, id: userId, changes: [
+    "age": 26,
+    "isActive": true
 ])
 
-// Update records
-let updatedUser = try await user.update([
-    "age": 31,
-    "is_active": true
-])
-
-// Delete records
-try await user.delete()
+// Deletions
+try await repo.delete(User.self, id: userId)
 ```
 
-### Query Builder
-
-Build complex queries with type-safe, composable methods:
+### 4. Advanced Queries
 
 ```swift
-let query = UserSchema.query()
-    .select { [$0.name, $0.email, $0.age] }
-    .where { $0.age > 25 && $0.is_active == true }
-    .orderBy { [$0.created_at.desc(), $0.name.asc()] }
-    .limit(20)
-    .offset(10)
+// Complex filtering
+let powerUsers = try await repo.query(User.self)
+    .where(\.age, .between, 25, and: 65)
+    .where(\.email, .like, "%@company.com")
+    .where(\.name, in: ["Alice", "Bob", "Charlie"])
+    .orderBy(\.createdAt, .desc)
+    .orderBy(\.name, .asc)
+    .limit(50)
+    .offset(20)
+    .all()
 
-let users = try await UserSchema.execute(query)
+// Count queries
+let activeUserCount = try await repo.query(User.self)
+    .where(\.isActive, .equals, true)
+    .count()
+
+// First/single results
+let firstUser = try await repo.query(User.self)
+    .where(\.email, .equals, "alice@example.com")
+    .first()
+
+let user = try await repo.query(User.self)
+    .where(\.email, .equals, "alice@example.com")
+    .firstOrFail()
 ```
 
-### Advanced Relationship Queries
-
-Spectro supports powerful relationship queries inspired by Ecto and ActiveRecord:
+### 5. Transactions
 
 ```swift
-// Join tables for filtering
-let usersWithPosts = try await UserSchema.all { query in
-    query.join("posts")
-         .where("posts") { $0.published == true }
+// Automatic transaction handling
+let result = try await repo.transaction { transactionRepo in
+    let user = try await transactionRepo.insert(user)
+    let post = Post(title: "My Post", content: "Content", userId: user.id)
+    let savedPost = try await transactionRepo.insert(post)
+    
+    return (user, savedPost)
 }
 
-// Navigate through relationships
-let publishedPosts = try await UserSchema.all { query in
-    query.where { $0.name.eq("John Doe") }
-         .through("posts")
-         .where { $0.published == true }
-}
-
-// Deep relationship navigation
-let approvedComments = try await UserSchema.all { query in
-    query.where { $0.is_active == true }
-         .through("posts")
-         .where { $0.published == true }
-         .through("comments")
-         .where { $0.approved == true }
-}
-
-// Preload relationships (eager loading)
-let usersWithData = try await UserSchema.all { query in
-    query.preload("posts", "profile")
+// Automatic rollback on error
+try await repo.transaction { transactionRepo in
+    let user = try await transactionRepo.insert(user)
+    
+    // This will rollback the entire transaction
+    throw SpectroError.validationError(field: "email", errors: ["Invalid"])
 }
 ```
 
-### Repository Pattern (Alternative)
-
-For more explicit control, use the repository pattern directly:
+### 6. Convenience Methods
 
 ```swift
-let repo = PostgresRepo(pools: spectro.pools)
+// Direct Spectro operations
+let user = try await spectro.get(User.self, id: userId)
+let users = try await spectro.all(User.self)
+let newUser = try await spectro.insert(user)
 
-// Direct repository usage
-let users = try await repo.all(UserSchema.self) { query in
-    query.where { $0.age > 25 }
+// Transaction convenience
+let result = try await spectro.transaction { repo in
+    // All operations within transaction
+    return try await repo.insert(user)
 }
-
-let user = try await repo.get(UserSchema.self, userId)
-let newUser = try await repo.insert(changeset)
 ```
 
-## 🔧 Database Migrations
+## 💎 Beautiful API Showcase
 
-Spectro provides a comprehensive CLI for managing database schema changes:
+### Property Wrapper Magic
+
+```swift
+struct User: Schema {
+    static let tableName = "users"
+    
+    @ID var id: UUID                    // Auto-generated UUID primary key
+    @Column var name: String = ""       // Required string column
+    @Column var email: String = ""      // Required string column  
+    @Column var age: Int = 0           // Integer with default
+    @Column var isActive: Bool = true  // Boolean with default
+    @Timestamp var createdAt: Date = Date()  // Auto-managed timestamp
+    @Timestamp var updatedAt: Date = Date()  // Auto-managed timestamp
+    
+    init() {}
+    
+    // Custom initializer for convenience
+    init(name: String, email: String, age: Int) {
+        self.name = name
+        self.email = email
+        self.age = age
+    }
+}
+```
+
+### Type-Safe KeyPath Queries
+
+```swift
+// Compile-time type safety - these won't compile if field types don't match
+let query = repo.query(User.self)
+    .where(\.name, .equals, "John")        // String comparison
+    .where(\.age, .greaterThan, 18)        // Int comparison
+    .where(\.isActive, .equals, true)      // Bool comparison
+    .where(\.createdAt, .lessThan, Date()) // Date comparison
+    .orderBy(\.name, .asc)                 // Type-safe ordering
+    .limit(10)
+
+let users = try await query.all()
+```
+
+### Clean, Explicit API
+
+```swift
+// No global state - everything is explicit
+let spectro = try Spectro(database: config)
+let repo = spectro.repository()
+
+// No method chaining on instances - clear data flow
+let user = User(name: "Alice", email: "alice@example.com", age: 25)
+let saved = try await repo.insert(user)                    // Clear: we're inserting
+let found = try await repo.get(User.self, id: saved.id)   // Clear: we're querying
+let updated = try await repo.update(User.self, id: saved.id, changes: [...]) // Clear: we're updating
+```
+
+## 🏗️ Architecture Excellence
+
+### Actor-Based Concurrency
+
+```swift
+// Thread-safe database connections
+public actor DatabaseConnection {
+    // All database operations are isolated and thread-safe
+    public func executeQuery<T>(...) async throws -> [T]
+    public func transaction<T>(...) async throws -> T
+}
+```
+
+### Zero Crashes Production Safety
+
+```swift
+// ❌ Old dangerous pattern:
+let user = users.first!  // Crashes in production
+
+// ✅ New safe pattern:
+let user = try await repo.query(User.self)
+    .where(\.email, .equals, "alice@example.com")
+    .first()  // Returns Optional<User>
+
+// ✅ Or explicit error handling:
+let user = try await repo.query(User.self)
+    .where(\.email, .equals, "alice@example.com")
+    .firstOrFail()  // Throws SpectroError.notFound
+```
+
+### Comprehensive Error Handling
+
+```swift
+public enum SpectroError: Error, Sendable {
+    case connectionFailed(underlying: Error)
+    case queryExecutionFailed(sql: String, error: Error)
+    case resultDecodingFailed(column: String, expectedType: String)
+    case notFound(schema: String, id: UUID)
+    case validationError(field: String, errors: [String])
+    case transactionFailed(underlying: Error)
+    case notImplemented(String)
+}
+```
+
+## 🔧 Configuration
+
+### Environment-Based Setup
+
+```swift
+// From environment variables
+let spectro = try Spectro.fromEnvironment()
+
+// Or explicit configuration
+let spectro = try Spectro(
+    hostname: "localhost",
+    port: 5432,
+    username: "postgres", 
+    password: "password",
+    database: "myapp",
+    maxConnectionsPerEventLoop: 4
+)
+```
+
+### Database Setup
 
 ```bash
-# Generate a new migration
-spectro migrate generate add_users_table
+# Create your database
+createdb myapp_db
+createdb myapp_test_db
 
-# Run pending migrations
-spectro migrate up
-
-# Rollback last migration
-spectro migrate down
-
-# Check migration status
-spectro migrate status
+# Set environment variables
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=myapp_db
+export DB_USER=postgres
+export DB_PASSWORD=password
 ```
-
-Migration files are generated in `migrations/` directory with timestamp prefixes for proper ordering.
-
-## 🏗️ Architecture & Design Decisions
-
-### Repository Pattern with Schema-Level Convenience
-
-Spectro follows a **dual-API approach** combining the best of both worlds:
-
-1. **Repository Pattern (Foundation)**: Explicit, testable, follows DDD principles
-2. **Schema-Level API (Convenience)**: ActiveRecord-style methods for common operations
-
-This allows you to use the beautiful `UserSchema.all()` API for simple cases while having the full power of `repo.all(UserSchema.self)` when you need explicit control.
-
-### Relationship Handling Philosophy
-
-Inspired by **Elixir's Ecto**, Spectro treats relationships as first-class citizens:
-
-- **Introspection**: Schemas can discover their relationships at runtime
-- **Join Support**: Multiple join strategies (INNER, LEFT, RIGHT, FULL)
-- **Navigation**: Method chaining through relationships with `.through()`
-- **Preloading**: Separate concern from joins for eager loading
-
-### Query Composition
-
-Following **Ecto's composable query** philosophy:
-- Queries are immutable and composable
-- Method chaining for readability
-- Type-safe field selectors
-- Lazy evaluation until execution
-
-### Type Safety First
-
-- **Field Types**: Rich type system with proper Swift mappings
-- **Compile-time Safety**: Catch errors at compile time, not runtime
-- **Swift 6 Ready**: Full concurrency support with proper Sendable conformance
 
 ## 🧪 Testing
 
-### Setup Test Database
-
-```bash
-# Run the setup script
-./Tests/setup_test_db.sh
-```
-
-This creates tables and test data in your `spectro_test` database.
-
-### Architecture Principle
-
-Tests follow **separation of concerns**:
-- **Database Schema**: Managed externally via setup scripts
-- **Test Logic**: Focus on functionality, not infrastructure
-- **Repository Configuration**: Handled by test infrastructure
-
-Run tests:
-
-```bash
-swift test
-```
-
-## 📚 Advanced Usage
-
-### Custom Field Types
+Spectro makes testing beautiful and simple:
 
 ```swift
-struct UserSchema: Schema {
-    @SchemaBuilder
-    static var fields: [SField] {
-        Field.description("metadata", .jsonb)
-        Field.description("score", .float(defaultValue: 0.0))
-        Field.description("created_at", .timestamp)
-        Field.description("preferences", .jsonb)
+import Testing
+@testable import Spectro
+
+@Suite("User Tests")
+struct UserTests {
+    @Test("Can create and query users")
+    func testUserCRUD() async throws {
+        let spectro = try Spectro(
+            username: "postgres",
+            password: "postgres", 
+            database: "spectro_test"
+        )
+        defer { Task { await spectro.shutdown() } }
+        
+        let repo = spectro.repository()
+        
+        // Create
+        let user = User(name: "Test User", email: "test@example.com", age: 30)
+        let saved = try await repo.insert(user)
+        
+        // Read
+        let found = try await repo.get(User.self, id: saved.id)
+        #expect(found?.name == "Test User")
+        
+        // Query
+        let adults = try await repo.query(User.self)
+            .where(\.age, .greaterThan, 18)
+            .all()
+        #expect(adults.count > 0)
     }
 }
 ```
 
-### Complex Queries
+## 🚀 Performance & Best Practices
+
+### Connection Pooling
 
 ```swift
-// Complex filtering with relationships
-let powerUsers = try await UserSchema.all { query in
-    query.join("posts")
-         .where { $0.is_active == true && $0.age > 25 }
-         .where("posts") { $0.published == true }
-         .select { [$0.name, $0.email] }
-         .orderBy { [$0.created_at.desc()] }
-         .limit(50)
+// Automatic connection pooling with EventLoopGroupConnectionPool
+let spectro = try Spectro(
+    username: "postgres",
+    password: "password",
+    database: "myapp",
+    maxConnectionsPerEventLoop: 4  // Optimize for your workload
+)
+```
+
+### Transaction Best Practices
+
+```swift
+// ✅ Good - Short transactions
+try await repo.transaction { transactionRepo in
+    let user = try await transactionRepo.insert(user)
+    let profile = try await transactionRepo.insert(profile)
+    return (user, profile)
 }
 
-// Relationship navigation chains
-let comments = try await UserSchema.all { query in
-    query.where { $0.name.like("John%") }
-         .through("posts")
-         .where { $0.published == true }
-         .through("comments")
-         .where { $0.approved == true }
+// ❌ Avoid - Long-running transactions
+try await repo.transaction { transactionRepo in
+    // Don't do heavy computation or external API calls in transactions
+    let result = try await heavyComputation()  // This blocks other transactions
+    return result
 }
 ```
 
-### Changesets for Data Validation
+### Query Optimization
 
 ```swift
-let changeset = Changeset(UserSchema.self, [
-    "name": "John Doe",
-    "email": "john@example.com",
-    "age": 30
-])
+// ✅ Use specific queries instead of loading all data
+let activeUsers = try await repo.query(User.self)
+    .where(\.isActive, .equals, true)
+    .limit(100)
+    .all()
 
-// Validate before inserting
-if changeset.isValid {
-    let user = try await UserSchema.create(changeset)
-} else {
-    print("Validation errors: \(changeset.errors)")
-}
+// ✅ Use counts when you only need numbers
+let userCount = try await repo.query(User.self)
+    .where(\.isActive, .equals, true)
+    .count()
+
+// ✅ Use first() for single results
+let user = try await repo.query(User.self)
+    .where(\.email, .equals, "unique@example.com")
+    .first()
 ```
 
 ## 🗺️ Roadmap
 
-### ✅ Completed
-- [x] Schema definitions with relationships
-- [x] Query builder with method chaining
-- [x] Repository pattern implementation
-- [x] Join functionality (INNER, LEFT, RIGHT, FULL)
-- [x] Relationship navigation with `.through()`
-- [x] Schema-level convenience API
-- [x] Migration CLI
-- [x] Type-safe field selectors
+### ✅ Completed (v0.1.0)
+- [x] Property wrapper schema definitions
+- [x] KeyPath-based type-safe queries  
+- [x] Actor-based connection management
+- [x] Comprehensive error handling (zero crashes)
+- [x] Transaction support with automatic rollback
+- [x] Repository pattern with clean APIs
 - [x] Swift 6 compatibility
+- [x] Production safety (no fatalError/try!)
 
-### 🚧 In Progress
-- [ ] Preload implementation (eager loading)
-- [ ] Multi-table result mapping
+### 🚧 Next Release (v0.2.0)
+- [ ] Relationship support (`@HasMany`, `@HasOne`, `@BelongsTo`)
+- [ ] Join queries and eager loading
+- [ ] Integer primary key support
+- [ ] Migration system integration
 - [ ] Query caching layer
 
-### 📋 Planned
-- [ ] Validation layer expansion
-- [ ] Connection pooling optimization
+### 📋 Future Releases
+- [ ] Many-to-many relationships
+- [ ] Bulk operations
+- [ ] Prepared statement caching
 - [ ] Query performance analytics
-- [ ] Support for other databases (MySQL, SQLite)
-- [ ] Schema introspection from existing databases
-- [ ] Query logging and debugging tools
+- [ ] Advanced validation layer
+- [ ] Multiple database support
 
 ## 🤝 Contributing
 
-We welcome contributions! Please feel free to:
+We welcome contributions! Spectro is built with:
 
-- 🐛 Submit bug reports and feature requests
-- 🔧 Create pull requests
-- 📖 Improve documentation
-- 💬 Share feedback and suggestions
-- ⭐ Star the repository if you find it useful
+- **Swift 6** - Modern concurrency and Sendable safety
+- **PostgresNIO** - High-performance PostgreSQL driver
+- **Actor isolation** - Thread-safe database access
+- **Property wrappers** - Clean, declarative schema definitions
 
 ### Development Setup
 
 1. Clone the repository
-2. Set up PostgreSQL with test databases
-3. Run `./Tests/setup_test_db.sh`
-4. Run tests with `swift test`
+2. Set up PostgreSQL with test database
+3. Run `swift test` to ensure everything works
 
 ## 📄 License
 
@@ -398,4 +446,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ---
 
-**Spectro** - Building the future of Swift database interactions, one query at a time. 🌈
+**Spectro** - The modern Swift ORM that doesn't compromise on safety, performance, or beauty. 🌈
+
+Built with ❤️ for the Swift community.
