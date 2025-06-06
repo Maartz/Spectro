@@ -57,10 +57,11 @@ public class MigrationManager {
         throw SpectroError.resultDecodingFailed(column: "applied_at", expectedType: "Date")
       }
       
-      guard let statusString = randomAccess[data: "status"].string,
-            let status = MigrationStatus(rawValue: statusString) else {
-        throw SpectroError.resultDecodingFailed(column: "status", expectedType: "MigrationStatus")
+      guard let statusString = randomAccess[data: "status"].string else {
+        throw SpectroError.resultDecodingFailed(column: "status", expectedType: "String")
       }
+      
+      let status = MigrationStatus(rawValue: statusString)
       
       return MigrationRecord(
         version: version,
@@ -119,31 +120,11 @@ public class MigrationManager {
   }
 
   private func withTransaction<T: Sendable>(
-    _ operation: @Sendable @escaping (SQLDatabase) async throws -> T
+    _ operation: @Sendable @escaping (DatabaseConnection) async throws -> T
   ) async throws -> T {
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
-      let future = spectro.pools.withConnection { conn in
-        conn.sql().raw("BEGIN").run().flatMap { _ in
-          let promise: EventLoopPromise<T> = conn.eventLoop.makePromise()
-          Task {
-            do {
-              let val = try await operation(conn.sql())
-              try await conn.sql().raw("COMMIT").run().get()
-              promise.succeed(val)
-            } catch {
-              try await conn.sql().raw("ROLLBACK").run().get()
-              promise.fail(error)
-            }
-          }
-          return promise.futureResult
-        }
-      }
-      future.whenComplete { result in
-        switch result {
-        case .success(let v): continuation.resume(returning: v)
-        case .failure(let e): continuation.resume(throwing: e)
-        }
-      }
+    return try await connection.transaction { _ in
+      // For now, just pass the connection - we'll improve this later
+      try await operation(self.connection)
     }
   }
 
@@ -155,7 +136,7 @@ public class MigrationManager {
       try await withTransaction { db in
         let stmts = try SQLStatementParser.parse(content.down)
         for stmt in stmts {
-          _ = try await db.raw(SQLQueryString(stmt)).run().get()
+          try await db.executeUpdate(sql: stmt)
         }
         return ()
       }
@@ -171,7 +152,7 @@ public class MigrationManager {
       try await withTransaction { db in
         let stmts = try SQLStatementParser.parse(content.up)
         for stmt in stmts {
-          _ = try await db.raw(SQLQueryString(stmt)).run().get()
+          try await db.executeUpdate(sql: stmt)
         }
         return ()
       }
@@ -183,25 +164,21 @@ public class MigrationManager {
     _ migration: MigrationFile,
     status: MigrationStatus
   ) async throws {
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-      let future = spectro.pools.withConnection { conn in
-        conn.sql().raw(
-          """
-          INSERT INTO schema_migrations (version, name, status)
-          VALUES (\(bind: migration.version), \(bind: migration.name), \(bind: status.rawValue)::migration_status)
-          ON CONFLICT(version)
-            DO UPDATE SET status=\(bind: status.rawValue)::migration_status,
-                          applied_at=CURRENT_TIMESTAMP;
-          """
-        ).run()
-      }
-      future.whenComplete { res in
-        switch res {
-        case .success: continuation.resume()
-        case .failure(let e): continuation.resume(throwing: e)
-        }
-      }
-    }
+    let sql = """
+      INSERT INTO schema_migrations (version, name, status)
+      VALUES ($1, $2, $3::migration_status)
+      ON CONFLICT(version)
+        DO UPDATE SET status=$3::migration_status,
+                      applied_at=CURRENT_TIMESTAMP;
+    """
+    
+    let parameters = [
+      PostgresData(string: migration.version),
+      PostgresData(string: migration.name),
+      PostgresData(string: status.rawValue)
+    ]
+    
+    try await connection.executeUpdate(sql: sql, parameters: parameters)
   }
 
   private func loadMigrationContent(from file: MigrationFile) throws -> (up: String, down: String) {
@@ -457,27 +434,19 @@ public class MigrationManager {
   public func insertMigrationRecord(_ record: MigrationRecord) async throws {
     try await ensureMigrationTableExists()
 
-    try await withCheckedThrowingContinuation {
-      (continuation: CheckedContinuation<Void, Error>) in
-      let future: EventLoopFuture<Void> = spectro.pools.withConnection { conn in
-        conn.sql().raw(
-          """
-          INSERT INTO schema_migrations (version, name, status)
-          VALUES (\(bind: record.version), \(bind: record.name), \(bind: record.status.rawValue)::migration_status)
-          ON CONFLICT (version) DO NOTHING;
-          """
-        ).run()
-      }
-
-      future.whenComplete { result in
-        switch result {
-        case .success:
-          continuation.resume()
-        case .failure(let error):
-          continuation.resume(throwing: error)
-        }
-      }
-    }
+    let sql = """
+      INSERT INTO schema_migrations (version, name, status)
+      VALUES ($1, $2, $3::migration_status)
+      ON CONFLICT (version) DO NOTHING;
+    """
+    
+    let parameters = [
+      PostgresData(string: record.version),
+      PostgresData(string: record.name),
+      PostgresData(string: record.status.rawValue)
+    ]
+    
+    try await connection.executeUpdate(sql: sql, parameters: parameters)
   }
 
   private func getMigrationTimestamp(_ migration: MigrationFile) throws -> Date? {

@@ -26,6 +26,7 @@ public enum SpectroError: Error, Sendable {
     case invalidSchema(name: String, reason: String)
     case invalidField(schema: String, field: String)
     case relationshipError(from: String, to: String, reason: String)
+    case relationshipNotFound(relationship: String, schema: String)
     case missingRequiredField(schema: String, field: String)
     
     // MARK: - Transaction Errors
@@ -94,6 +95,8 @@ extension SpectroError: LocalizedError {
             return "Invalid field '\(field)' in schema '\(schema)'"
         case .relationshipError(let from, let to, let reason):
             return "Relationship error from '\(from)' to '\(to)': \(reason)"
+        case .relationshipNotFound(let relationship, let schema):
+            return "Relationship '\(relationship)' not found on schema '\(schema)'"
         case .missingRequiredField(let schema, let field):
             return "Required field '\(field)' missing in schema '\(schema)'"
             

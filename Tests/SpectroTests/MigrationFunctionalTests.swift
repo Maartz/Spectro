@@ -9,7 +9,6 @@ struct MigrationFunctionalTests {
     @Test("Migration manager can discover and track migrations")
     func testMigrationDiscovery() async throws {
         let spectro = try Spectro(username: "postgres", password: "postgres", database: "spectro_test")
-        defer { spectro.shutdown() }
         
         let manager = spectro.migrationManager()
         
@@ -20,12 +19,13 @@ struct MigrationFunctionalTests {
         // Should be able to discover migrations (even if directory doesn't exist)
         let discovered = try manager.discoverMigrations()
         #expect(discovered.count >= 0)
+        
+        await spectro.shutdown()
     }
     
     @Test("Migration table management")
     func testMigrationTableManagement() async throws {
         let spectro = try Spectro(username: "postgres", password: "postgres", database: "spectro_test")
-        defer { spectro.shutdown() }
         
         let manager = spectro.migrationManager()
         
@@ -35,5 +35,7 @@ struct MigrationFunctionalTests {
         // Should be able to get pending migrations
         let pending = try await manager.getPendingMigrations()
         #expect(pending.count >= 0)
+        
+        await spectro.shutdown()
     }
 }

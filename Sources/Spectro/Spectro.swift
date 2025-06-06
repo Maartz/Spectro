@@ -62,32 +62,28 @@ public struct Spectro {
 
 extension Spectro {
     /// Execute work within a database transaction
-    public func transaction<T: Sendable>(_ work: @Sendable (DatabaseRepo) async throws -> T) async throws -> T {
+    public func transaction<T: Sendable>(_ work: @escaping @Sendable (any Repo) async throws -> T) async throws -> T {
         let repo = repository()
-        return try await repo.transaction { transactionRepo in
-            // Note: transactionRepo is the transaction-scoped repo, but we return DatabaseRepo type
-            // This is a temporary limitation that will be resolved in the next iteration
-            try await work(repo)
-        }
+        return try await repo.transaction(work)
     }
     
     /// Get a single record by schema and ID
-    public func get<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T.Model? {
+    public func get<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T? {
         try await repository().get(schema, id: id)
     }
     
     /// Get all records for a schema
-    public func all<T: Schema>(_ schema: T.Type) async throws -> [T.Model] {
+    public func all<T: Schema>(_ schema: T.Type) async throws -> [T] {
         try await repository().all(schema)
     }
     
     /// Insert a new record
-    public func insert<T: Schema>(_ schema: T.Type, data: [String: Any]) async throws -> T.Model {
-        try await repository().insert(schema, data: data)
+    public func insert<T: Schema>(_ instance: T) async throws -> T {
+        try await repository().insert(instance)
     }
     
     /// Update an existing record
-    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: Any]) async throws -> T.Model {
+    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: Any]) async throws -> T {
         try await repository().update(schema, id: id, changes: changes)
     }
     

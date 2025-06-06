@@ -1,4 +1,4 @@
-// swift-tools-version: 6.1
+// swift-tools-version: 5.9
 
 import PackageDescription
 
@@ -10,7 +10,7 @@ let package = Package(
     products: [
         .library(name: "SpectroCore", targets: ["SpectroCore"]),
         .library(name: "SpectroKit", targets: ["Spectro"]),
-        .executable(name: "spectro", targets: ["SpectroCLI"]),
+        // .executable(name: "spectro", targets: ["SpectroCLI"]), // Temporarily disabled
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-kit.git", from: "2.7.0"),
@@ -35,22 +35,20 @@ let package = Package(
             ],
             path: "Sources/Spectro"
         ),
-        .executableTarget(
-            name: "SpectroCLI",
-            dependencies: [
-                "SpectroCore",
-                "Spectro",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-            ],
-            path: "Sources/SpectroCLI"
-        ),
+        // .executableTarget(
+        //     name: "SpectroCLI",
+        //     dependencies: [
+        //         "SpectroCore",
+        //         "Spectro",
+        //         .product(name: "ArgumentParser", package: "swift-argument-parser"),
+        //     ],
+        //     path: "Sources/SpectroCLI"
+        // ),
         .testTarget(
             name: "SpectroTests",
             dependencies: [
                 "SpectroCore",
                 "Spectro",
-                "SpectroCLI",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Tests/SpectroTests"
         ),

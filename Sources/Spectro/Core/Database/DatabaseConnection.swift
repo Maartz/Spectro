@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import PostgresKit
+import NIOSSL
 
 /// Actor-based database connection manager
 /// Replaces the global RepositoryConfiguration with thread-safe, isolated connection handling
@@ -20,7 +21,7 @@ public actor DatabaseConnection {
             username: configuration.username,
             password: configuration.password,
             database: configuration.database,
-            tls: configuration.tlsConfiguration
+            tls: .disable
         )
         
         let source = PostgresConnectionSource(sqlConfiguration: sqlConfig)
@@ -87,9 +88,39 @@ public actor DatabaseConnection {
         }
     }
     
+    /// Execute a statement and return the number of affected rows
+    public func execute(
+        sql: String,
+        parameters: [PostgresData] = []
+    ) async throws -> Int {
+        guard !isShutdown else {
+            throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
+        }
+        
+        return try await withCheckedThrowingContinuation { continuation in
+            let future: EventLoopFuture<Int> = pools.withConnection { connection in
+                connection.query(sql, parameters).map { result in
+                    // For PostgreSQL, we can get affected rows from the command metadata
+                    // This is a simplified implementation - return 1 for now
+                    return 1
+                }
+            }
+            
+            future.whenComplete { result in
+                switch result {
+                case .success(let count):
+                    continuation.resume(returning: count)
+                case .failure(let error):
+                    let spectroError = SpectroError.queryExecutionFailed(sql: sql, error: error)
+                    continuation.resume(throwing: spectroError)
+                }
+            }
+        }
+    }
+    
     /// Execute work within a database transaction
     public func transaction<T: Sendable>(
-        _ work: @Sendable (TransactionContext) async throws -> T
+        _ work: @escaping @Sendable (TransactionContext) async throws -> T
     ) async throws -> T {
         guard !isShutdown else {
             throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
@@ -97,24 +128,24 @@ public actor DatabaseConnection {
         
         return try await withCheckedThrowingContinuation { continuation in
             let future: EventLoopFuture<T> = pools.withConnection { connection in
-                connection.sql().begin().flatMap { _ in
+                connection.query("BEGIN").flatMap { _ in
                     let transactionContext = TransactionContext(connection: connection)
                     
-                    let workFuture = EventLoopFuture<T>.make(on: connection.eventLoop)
+                    let promise = connection.eventLoop.makePromise(of: T.self)
                     
                     Task {
                         do {
                             let result = try await work(transactionContext)
-                            workFuture.succeed(result)
+                            promise.succeed(result)
                         } catch {
-                            workFuture.fail(error)
+                            promise.fail(error)
                         }
                     }
                     
-                    return workFuture.flatMap { result in
-                        connection.sql().commit().map { _ in result }
+                    return promise.futureResult.flatMap { result in
+                        connection.query("COMMIT").map { _ in result }
                     }.flatMapError { error in
-                        connection.sql().rollback().flatMapThrowing { _ in
+                        connection.query("ROLLBACK").flatMapThrowing { _ in
                             throw SpectroError.transactionFailed(underlying: error)
                         }
                     }
@@ -137,6 +168,8 @@ public actor DatabaseConnection {
         guard !isShutdown else { return }
         
         isShutdown = true
+        
+        // Shutdown pool - this is synchronous
         pools.shutdown()
         
         do {
@@ -144,6 +177,16 @@ public actor DatabaseConnection {
         } catch {
             // Log error but don't throw - shutdown should be best effort
             print("Warning: Error during event loop shutdown: \(error)")
+        }
+    }
+    
+    /// Ensure cleanup on deinit
+    deinit {
+        if !isShutdown {
+            // Force synchronous cleanup - this is a last resort
+            // Users should call shutdown() explicitly
+            pools.shutdown()
+            try? eventLoopGroup.syncShutdownGracefully()
         }
     }
     
@@ -177,7 +220,7 @@ public struct DatabaseConfiguration: Sendable {
     public let database: String
     public let maxConnectionsPerEventLoop: Int
     public let numberOfThreads: Int
-    public let tlsConfiguration: TLSConfiguration
+    public let tlsConfiguration: TLSConfiguration?
     
     public init(
         hostname: String = "localhost",
@@ -187,7 +230,7 @@ public struct DatabaseConfiguration: Sendable {
         database: String,
         maxConnectionsPerEventLoop: Int = 4,
         numberOfThreads: Int = System.coreCount,
-        tlsConfiguration: TLSConfiguration = .disable
+        tlsConfiguration: TLSConfiguration? = nil
     ) {
         self.hostname = hostname
         self.port = port

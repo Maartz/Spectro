@@ -10,7 +10,14 @@ import Foundation
 public extension String {
     func snakeCase() -> String {
         let pattern = "([a-z0-9])([A-Z])"
-        let regex = try! NSRegularExpression(pattern: pattern)
+        
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            // Fallback: simple character-by-character conversion if regex fails
+            return self.lowercased()
+                .replacingOccurrences(of: " ", with: "_")
+                .replacingOccurrences(of: "-", with: "_")
+        }
+        
         let range = NSRange(location: 0, length: self.count)
         let snakeCased = regex.stringByReplacingMatches(
             in: self,

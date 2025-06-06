@@ -5,14 +5,16 @@
 //  Created by William MARTIN on 11/16/24.
 //
 
-struct SchemaMigration: Schema {
-    static let schemaName = "schema_migrations"
+import Foundation
 
-    @SchemaBuilder
-    static var fields: [SField] {
-        Field.description("version", .string)
-        Field.description("name", .string)
-        Field.description("applied_at", .timestamp)
-        Field.description("status", .string)
-    }
+public struct SchemaMigration: Schema {
+    public static let tableName = "schema_migrations"
+
+    @ID public var id: UUID
+    @Column public var version: String = ""
+    @Column public var name: String = ""
+    @Timestamp public var appliedAt: Date = Date()
+    @Column public var status: String = ""
+
+    public init() {}
 }

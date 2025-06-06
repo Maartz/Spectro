@@ -1,61 +1,72 @@
-//
-//  Schema.swift
-//  Spectro
-//
-//  Created by William MARTIN on 11/3/24.
-//
-
 import Foundation
 
-@dynamicMemberLookup
-public protocol Schema {
-    static var schemaName: String { get }
-    static var fields: [SField] { get }
-    static var includesImplicitID: Bool { get }
-    static var uuidPK: Bool { get }
-
-    static subscript(dynamicMember member: String) -> SField? { get }
+/// Schema protocol for beautiful, type-safe database models
+/// 
+/// Usage:
+/// ```swift
+/// struct User: Schema {
+///     static let tableName = "users"
+///     
+///     @ID var id: UUID
+///     @Column var name: String
+///     @Column var email: String
+///     @Column var age: Int
+///     @Timestamp var createdAt: Date
+///     @Timestamp var updatedAt: Date
+/// }
+/// ```
+public protocol Schema: Sendable {
+    /// The database table name
+    static var tableName: String { get }
+    
+    /// Required initializer for creating instances
+    init()
 }
 
-extension Schema {
-    public static var includesImplicitID: Bool { true }
-    public static var uuidPK: Bool { true }
+// MARK: - Field Name Provider for KeyPath extraction
 
-    public static var allFields: [SField] {
-        var combinedFields = fields
-        // TODO: add the case where uuidPK is false
-        // pass it as Integer
-        if uuidPK && includesImplicitID {
-            combinedFields.insert(Field.description("id", .uuid), at: 0)
-        }
-        return combinedFields
-    }
-    
-    /// Returns only database columns (excludes virtual relationship fields)
-    public static var databaseFields: [SField] {
-        var dbFields: [SField] = []
+/// Protocol for schemas that provide static field name mappings
+/// This enables efficient KeyPath to field name resolution
+public protocol FieldNameProvider {
+    /// Maps KeyPath string representations to field names
+    static var fieldNames: [String: String] { get }
+}
+
+// MARK: - KeyPath Field Extraction
+
+/// Helper to extract field names from KeyPaths at runtime
+public enum KeyPathFieldExtractor {
+    /// Extract field name from a KeyPath using runtime reflection
+    public static func extractFieldName<T: Schema, V>(from keyPath: KeyPath<T, V>, schema: T.Type) -> String {
+        // Create a temporary instance to use with reflection
+        let instance = T()
         
-        for field in allFields {
-            switch field.type {
-            case .relationship(let relationship):
-                // Only belongsTo creates a real database column (foreign key)
-                if relationship.type == .belongsTo {
-                    // Create a new field with the foreign key column name
-                    let foreignKeyName = "\(field.name)_id"
-                    let foreignKeyField = SField(name: foreignKeyName, type: .uuid)
-                    dbFields.append(foreignKeyField)
-                }
-                // hasMany, hasOne, manyToMany are virtual - no database columns
-            default:
-                // Regular database fields
-                dbFields.append(field)
+        // Use Mirror to inspect the instance
+        let mirror = Mirror(reflecting: instance)
+        
+        // Try to find the property that matches our keyPath
+        for child in mirror.children {
+            guard let label = child.label else { continue }
+            
+            // Remove property wrapper underscore prefix if present
+            let fieldName = label.hasPrefix("_") ? String(label.dropFirst()) : label
+            
+            // This is a simplified check - in production we'd need more sophisticated matching
+            // For now, we'll use the debug description of the keyPath
+            let keyPathString = String(describing: keyPath)
+            
+            if keyPathString.contains(fieldName) || keyPathString.contains(label) {
+                return fieldName
             }
         }
         
-        return dbFields
-    }
-
-    public static subscript(dynamicMember member: String) -> SField? {
-        allFields.first { $0.name == member }
+        // Fallback: extract from keyPath description
+        // KeyPath descriptions often look like: \User.name
+        let keyPathString = String(describing: keyPath)
+        if let lastComponent = keyPathString.split(separator: ".").last {
+            return String(lastComponent)
+        }
+        
+        return "unknown"
     }
 }
