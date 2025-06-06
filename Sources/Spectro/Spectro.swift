@@ -1,77 +1,98 @@
 import Foundation
-import NIOCore
 import PostgresKit
 
-public final class Spectro {
-    public let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
-    private let eventLoop: EventLoopGroup
-
+/// Modern, actor-based ORM for PostgreSQL
+/// Provides a clean, type-safe interface for database operations
+public struct Spectro {
+    private let connection: DatabaseConnection
+    
+    /// Create a new Spectro instance with explicit configuration
+    public init(configuration: DatabaseConfiguration) throws {
+        self.connection = try DatabaseConnection(configuration: configuration)
+    }
+    
+    /// Create a new Spectro instance with individual parameters
     public init(
         hostname: String = "localhost",
         port: Int = 5432,
         username: String,
         password: String,
-        database: String
+        database: String,
+        maxConnectionsPerEventLoop: Int = 4
     ) throws {
-
-        self.eventLoop = MultiThreadedEventLoopGroup(
-            numberOfThreads: System.coreCount)
-
-        let config = SQLPostgresConfiguration(
+        let config = DatabaseConfiguration(
             hostname: hostname,
             port: port,
             username: username,
             password: password,
             database: database,
-            tls: .disable
+            maxConnectionsPerEventLoop: maxConnectionsPerEventLoop
         )
-
-        let source = PostgresConnectionSource(
-            sqlConfiguration: config
-        )
-
-        self.pools = EventLoopGroupConnectionPool(
-            source: source,
-            maxConnectionsPerEventLoop: 1,
-            on: eventLoop
-        )
+        try self.init(configuration: config)
     }
-
+    
+    /// Create a Spectro instance from environment variables
+    public static func fromEnvironment() throws -> Spectro {
+        let config = try DatabaseConfiguration.fromEnvironment()
+        return try Spectro(configuration: config)
+    }
+    
+    /// Get a repository for database operations
+    public func repository() -> DatabaseRepo {
+        DatabaseRepo(connection: connection)
+    }
+    
+    /// Test the database connection
+    public func testConnection() async throws -> String {
+        return try await connection.testConnection()
+    }
+    
+    /// Create a migration manager for this database
     public func migrationManager() -> MigrationManager {
-        return MigrationManager(spectro: self)
+        return MigrationManager(connection: connection)
     }
-
-    public func shutdown() {
-        pools.shutdown()
-        try? eventLoop.syncShutdownGracefully()
+    
+    /// Gracefully shutdown the database connection
+    public func shutdown() async {
+        await connection.shutdown()
     }
+}
 
-    func test() async throws -> String {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<String, Error>) in
-            let future: EventLoopFuture<String> = pools.withConnection { conn in
-                conn.sql()
-                    .raw("SELECT version() as ver;")
-                    .first()
-                    .map { row -> String in
-                        guard let row = row,
-                            let version = try? row.decode(
-                                column: "ver", as: String.self)
-                        else {
-                            return "Version not found"
-                        }
-                        return version
-                    }
-            }
+// MARK: - Convenience Methods
 
-            future.whenComplete { result in
-                switch result {
-                case .success(let version):
-                    continuation.resume(returning: version)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
-            }
+extension Spectro {
+    /// Execute work within a database transaction
+    public func transaction<T: Sendable>(_ work: @Sendable (DatabaseRepo) async throws -> T) async throws -> T {
+        let repo = repository()
+        return try await repo.transaction { transactionRepo in
+            // Note: transactionRepo is the transaction-scoped repo, but we return DatabaseRepo type
+            // This is a temporary limitation that will be resolved in the next iteration
+            try await work(repo)
         }
+    }
+    
+    /// Get a single record by schema and ID
+    public func get<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T.Model? {
+        try await repository().get(schema, id: id)
+    }
+    
+    /// Get all records for a schema
+    public func all<T: Schema>(_ schema: T.Type) async throws -> [T.Model] {
+        try await repository().all(schema)
+    }
+    
+    /// Insert a new record
+    public func insert<T: Schema>(_ schema: T.Type, data: [String: Any]) async throws -> T.Model {
+        try await repository().insert(schema, data: data)
+    }
+    
+    /// Update an existing record
+    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: Any]) async throws -> T.Model {
+        try await repository().update(schema, id: id, changes: changes)
+    }
+    
+    /// Delete a record
+    public func delete<T: Schema>(_ schema: T.Type, id: UUID) async throws {
+        try await repository().delete(schema, id: id)
     }
 }

@@ -42,7 +42,7 @@ struct SQLBuilder {
     static func buildRelationshipConditions(
         _ relationshipConditions: [String: [String: (String, ConditionValue)]],
         parameterOffset: Int = 0
-    ) -> (clause: String, params: [PostgresData]) {
+    ) throws -> (clause: String, params: [PostgresData]) {
         var clauseParts: [String] = []
         var params: [PostgresData] = []
         var paramIndex = parameterOffset + 1
@@ -58,27 +58,27 @@ struct SQLBuilder {
                     } else if op == "IS NOT NULL" {
                         clauseParts.append("\(qualifiedColumn) IS NOT NULL")
                     } else {
-                        fatalError("Unsupported operator \(op) for NULL value.")
+                        throw SpectroError.invalidParameter(name: "operator", value: op, reason: "Operator \(op) not supported for NULL values. Use 'IS NULL' or 'IS NOT NULL'")
                     }
                 case .between(let start, let end):
                     clauseParts.append("\(qualifiedColumn) BETWEEN $\(paramIndex) AND $\(paramIndex + 1)")
-                    params.append(try! start.toPostgresData())
-                    params.append(try! end.toPostgresData())
+                    params.append(try start.toPostgresData())
+                    params.append(try end.toPostgresData())
                     paramIndex += 2
                 case .array(let values):
                     if op == "IN" {
                         let placeholders = (0..<values.count).map { "$\(paramIndex + $0)" }.joined(separator: ", ")
                         clauseParts.append("\(qualifiedColumn) IN (\(placeholders))")
                         for arrayValue in values {
-                            params.append(try! arrayValue.toPostgresData())
+                            params.append(try arrayValue.toPostgresData())
                         }
                         paramIndex += values.count
                     } else {
-                        fatalError("Array values only supported with IN operator")
+                        throw SpectroError.invalidParameter(name: "operator", value: op, reason: "Array values only supported with 'IN' operator, got '\(op)'")
                     }
                 default:
                     clauseParts.append("\(qualifiedColumn) \(op) $\(paramIndex)")
-                    params.append(try! value.toPostgresData())
+                    params.append(try value.toPostgresData())
                     paramIndex += 1
                 }
             }
@@ -88,7 +88,7 @@ struct SQLBuilder {
     }
     static func buildWhereClause(
         _ conditions: [String: (String, ConditionValue)]
-    ) -> (clause: String, params: [PostgresData]) {
+    ) throws -> (clause: String, params: [PostgresData]) {
         var clauseParts: [String] = []
         var params: [PostgresData] = []
         var paramIndex = 1
@@ -101,28 +101,28 @@ struct SQLBuilder {
                 } else if op == "IS NOT NULL" {
                     clauseParts.append("\(column) IS NOT NULL")
                 } else {
-                    fatalError("Unsupported operator \(op) for NULL value.")
+                    throw SpectroError.invalidParameter(name: "operator", value: op, reason: "Operator \(op) not supported for NULL values. Use 'IS NULL' or 'IS NOT NULL'")
                 }
             case .between(let start, let end):
                 clauseParts.append(
                     "\(column) BETWEEN $\(paramIndex) AND $\(paramIndex + 1)")
-                params.append(try! start.toPostgresData())
-                params.append(try! end.toPostgresData())
+                params.append(try start.toPostgresData())
+                params.append(try end.toPostgresData())
                 paramIndex += 2
             case .array(let values):
                 if op == "IN" {
                     let placeholders = (0..<values.count).map { "$\(paramIndex + $0)" }.joined(separator: ", ")
                     clauseParts.append("\(column) IN (\(placeholders))")
                     for arrayValue in values {
-                        params.append(try! arrayValue.toPostgresData())
+                        params.append(try arrayValue.toPostgresData())
                     }
                     paramIndex += values.count
                 } else {
-                    fatalError("Array values only supported with IN operator")
+                    throw SpectroError.invalidParameter(name: "operator", value: op, reason: "Array values only supported with 'IN' operator, got '\(op)'")
                 }
             default:
                 clauseParts.append("\(column) \(op) $\(paramIndex)")
-                params.append(try! value.toPostgresData())
+                params.append(try value.toPostgresData())
                 paramIndex += 1
             }
         }
@@ -137,13 +137,13 @@ struct SQLBuilder {
     }
 
     static func buildInsert(table: String, values: [String: ConditionValue])
-        -> (sql: String, params: [PostgresData])
+        throws -> (sql: String, params: [PostgresData])
     {
         let columns = values.keys.joined(separator: ", ")
         let placeholders = (1...values.count).map { "$\($0)" }.joined(
             separator: ", ")
         let sql = "INSERT INTO \(table) (\(columns)) VALUES (\(placeholders))"
-        let params = try! values.values.map { try $0.toPostgresData() }
+        let params = try values.values.map { try $0.toPostgresData() }
 
         return (sql: sql, params: params)
     }
@@ -152,11 +152,11 @@ struct SQLBuilder {
         table: String,
         values: [String: ConditionValue],
         where conditions: [String: (String, ConditionValue)]
-    ) -> (sql: String, params: [PostgresData]) {
+    ) throws -> (sql: String, params: [PostgresData]) {
         let setClause = values.keys.enumerated().map { "\($1) = $\($0 + 1)" }
             .joined(separator: ", ")
 
-        let whereClause = buildWhereClause(conditions)
+        let whereClause = try buildWhereClause(conditions)
         let offset = values.count
 
         let adjustedWhereClause = adjustParameterNumbers(
@@ -165,7 +165,7 @@ struct SQLBuilder {
         let sql =
             "UPDATE \(table) SET \(setClause) WHERE \(adjustedWhereClause)"
         let params =
-            try! values.values.map { try $0.toPostgresData() }
+            try values.values.map { try $0.toPostgresData() }
             + whereClause.params
 
         return (sql: sql, params: params)

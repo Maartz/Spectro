@@ -63,9 +63,9 @@ public indirect enum ConditionValue: Sendable, Equatable, Encodable {
         case .jsonb(let value):
             return try PostgresData(jsonb: value)
         case .between( _, _):
-            fatalError("BETWEEN should be handled by SQLBuilder")
+            throw SpectroError.invalidParameter(name: "between", value: nil, reason: "BETWEEN conditions should be handled by SQLBuilder")
         case .array(_):
-            fatalError("Array conditions should be handled by SQLBuilder")
+            throw SpectroError.invalidParameter(name: "array", value: nil, reason: "Array conditions should be handled by SQLBuilder")
         case .null:
             return PostgresData(type: .null, value: nil)
         }

@@ -3,79 +3,71 @@ import PostgresKit
 import SpectroCore
 
 public class MigrationManager {
-  private let spectro: Spectro
+  private let connection: DatabaseConnection
   private let migrationsPath: URL
 
-  public init(spectro: Spectro) {
-    self.spectro = spectro
+  public init(connection: DatabaseConnection) {
+    self.connection = connection
     let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     self.migrationsPath = currentDirectory.appendingPathComponent("Sources/Migrations")
   }
 
   public func ensureMigrationTableExists() async throws {
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-      let future = spectro.pools.withConnection { conn in
-        conn.sql().raw(
-          """
-          DO $$ BEGIN
-              CREATE TYPE migration_status AS ENUM ('pending', 'completed', 'failed');
-          EXCEPTION WHEN duplicate_object THEN null; END $$;
-          """
-        )
-        .run()
-        .flatMap { _ in
-          conn.sql().raw(
-            """
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-                version TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                status migration_status NOT NULL DEFAULT 'pending'
-            );
-            """
-          ).run()
-        }
-      }
-      future.whenComplete { result in
-        switch result {
-        case .success:
-          continuation.resume()
-        case .failure(let err):
-          continuation.resume(throwing: err)
-        }
-      }
-    }
+    // Create migration status enum type if it doesn't exist
+    let createEnumSql = """
+      DO $$ BEGIN
+          CREATE TYPE migration_status AS ENUM ('pending', 'completed', 'failed');
+      EXCEPTION WHEN duplicate_object THEN null; END $$;
+    """
+    
+    try await connection.executeUpdate(sql: createEnumSql)
+    
+    // Create migrations table if it doesn't exist
+    let createTableSql = """
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+          version TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+          status migration_status NOT NULL DEFAULT 'pending'
+      );
+    """
+    
+    try await connection.executeUpdate(sql: createTableSql)
   }
 
   public func getMigrationStatus() async throws -> [MigrationRecord] {
-    try await withCheckedThrowingContinuation {
-      (continuation: CheckedContinuation<[MigrationRecord], Error>) in
-      let future = spectro.pools.withConnection { conn in
-        conn.sql().raw(
-          """
-          SELECT version, name, applied_at, status
-          FROM schema_migrations
-          ORDER BY version ASC
-          """
-        )
-        .all()
-        .flatMapThrowing { rows in
-          try rows.map { row in
-            try MigrationRecord(
-              version: row.decode(column: "version", as: String.self),
-              name: row.decode(column: "name", as: String.self),
-              appliedAt: row.decode(column: "applied_at", as: Date.self),
-              status: MigrationStatus(rawValue: row.decode(column: "status", as: String.self))
-            )
-          }
-        }
+    let sql = """
+      SELECT version, name, applied_at, status
+      FROM schema_migrations
+      ORDER BY version ASC
+    """
+    
+    return try await connection.executeQuery(sql: sql) { row in
+      let randomAccess = row.makeRandomAccess()
+      
+      guard let version = randomAccess[data: "version"].string else {
+        throw SpectroError.resultDecodingFailed(column: "version", expectedType: "String")
       }
-      future.whenComplete { result in
-        switch result {
-        case .success(let recs): continuation.resume(returning: recs)
-        case .failure(let err): continuation.resume(throwing: err)
-        }
+      
+      guard let name = randomAccess[data: "name"].string else {
+        throw SpectroError.resultDecodingFailed(column: "name", expectedType: "String")
       }
+      
+      guard let appliedAt = randomAccess[data: "applied_at"].date else {
+        throw SpectroError.resultDecodingFailed(column: "applied_at", expectedType: "Date")
+      }
+      
+      guard let statusString = randomAccess[data: "status"].string,
+            let status = MigrationStatus(rawValue: statusString) else {
+        throw SpectroError.resultDecodingFailed(column: "status", expectedType: "MigrationStatus")
+      }
+      
+      return MigrationRecord(
+        version: version,
+        name: name,
+        appliedAt: appliedAt,
+        status: status
+      )
     }
   }
 
