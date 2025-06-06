@@ -5,7 +5,10 @@ A modern, type-safe Swift ORM for PostgreSQL built with Swift 6 and property wra
 ## ✨ Features
 
 - 🏗️ **Property wrapper schemas** - Beautiful `@ID`, `@Column`, `@Timestamp` syntax
-- 🔍 **KeyPath-based queries** - Type-safe queries with compile-time guarantees
+- 🔍 **100% closure-based queries** - Beautiful, consistent Swift syntax with compile-time guarantees
+- 🎯 **Revolutionary tuple selection** - `select { ($0.name, $0.email) }` returns `[(String, String)]`
+- 📝 **Rich string functions** - `ilike()`, `startsWith()`, `contains()`, `iContains()` and more
+- 📅 **Smart date helpers** - `isToday()`, `isThisWeek()`, `before()`, `after()` built-in
 - ⚡️ **Swift 6 + Actor concurrency** - Thread-safe database operations
 - 🔐 **Production-ready** - Zero `fatalError()` calls, comprehensive error handling
 - 🔄 **Transaction support** - ACID compliance with automatic rollback
@@ -19,7 +22,7 @@ Add Spectro to your Swift package:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Maartz/Spectro.git", from: "0.1.0")
+    .package(url: "https://github.com/Maartz/Spectro.git", from: "0.2.0")
 ]
 ```
 
@@ -87,11 +90,10 @@ let repo = spectro.repository()
 let user = User(name: "Alice", email: "alice@example.com", age: 25)
 let savedUser = try await repo.insert(user)
 
-// Type-safe KeyPath queries
+// Beautiful closure-based queries
 let adults = try await repo.query(User.self)
-    .where(\.age, .greaterThan, 18)
-    .where(\.isActive, .equals, true)
-    .orderBy(\.createdAt, .desc)
+    .where { $0.age > 18 && $0.isActive == true }
+    .orderBy({ $0.createdAt }, .desc)
     .limit(10)
     .all()
 
@@ -112,33 +114,109 @@ try await repo.delete(User.self, id: userId)
 ### 4. Advanced Queries
 
 ```swift
-// Complex filtering
+// Complex filtering with beautiful consistent syntax + REVOLUTIONARY string functions
 let powerUsers = try await repo.query(User.self)
-    .where(\.age, .between, 25, and: 65)
-    .where(\.email, .like, "%@company.com")
-    .where(\.name, in: ["Alice", "Bob", "Charlie"])
-    .orderBy(\.createdAt, .desc)
-    .orderBy(\.name, .asc)
+    .where { $0.age.between(25, and: 65) && $0.email.ilike("%@company.com") }
+    .where { $0.name.in(["Alice", "Bob", "Charlie"]) || $0.email.endsWith("@vip.com") }
+    .where { $0.createdAt.isThisYear() }
+    .orderBy({ $0.createdAt }, .desc, then: { $0.name }, .asc)
     .limit(50)
     .offset(20)
     .all()
 
-// Count queries
+// Advanced string and date filtering
+let searchResults = try await repo.query(User.self)
+    .where { $0.name.iContains("john") }           // Case-insensitive contains
+    .where { $0.email.startsWith("admin") }        // Starts with
+    .where { $0.createdAt.isThisMonth() }          // Date helpers
+    .where { $0.age.isNotNull() }                  // Null checks
+    .orderBy({ $0.createdAt }, .desc)
+    .all()
+
+// REVOLUTIONARY: Tuple-based field selection! 🤯
+let userNamesAndEmails = try await repo.query(User.self)
+    .select { ($0.name, $0.email) }                // Returns [(String, String)]
+    .where { $0.isActive == true }
+    .orderBy { $0.name }
+    .all()
+
+// Single field selection (unwrapped)
+let userNames = try await repo.query(User.self)
+    .select { $0.name }                            // Returns [String]
+    .where { $0.isActive == true }
+    .all()
+
+// Three fields as tuple
+let userProfiles = try await repo.query(User.self)
+    .select { ($0.name, $0.email, $0.age) }       // Returns [(String, String, Int)]
+    .where { $0.age > 18 }
+    .orderBy({ $0.createdAt }, .desc)
+    .limit(100)
+    .all()
+
+// Count and existence queries
 let activeUserCount = try await repo.query(User.self)
-    .where(\.isActive, .equals, true)
+    .where { $0.isActive == true && $0.email.isNotNull() }
     .count()
 
-// First/single results
-let firstUser = try await repo.query(User.self)
-    .where(\.email, .equals, "alice@example.com")
-    .first()
-
-let user = try await repo.query(User.self)
-    .where(\.email, .equals, "alice@example.com")
-    .firstOrFail()
+let hasAdults = try await repo.query(User.self)
+    .where { $0.age > 18 }
+    .count() > 0
 ```
 
-### 5. Transactions
+### 5. Beautiful Join Syntax
+
+```swift
+// Simple join - users with their posts
+let usersWithPosts = try await repo.query(User.self)
+    .join(Post.self) { join in
+        join.left.id == join.right.userId
+    }
+    .where { $0.isActive == true }
+    .all()
+
+// Left join - all users, optionally with profiles
+let usersWithProfiles = try await repo.query(User.self)
+    .leftJoin(Profile.self) { join in
+        join.left.id == join.right.userId
+    }
+    .all()
+
+// Complex join conditions
+let userPostsWithComments = try await repo.query(User.self)
+    .join(Post.self) { join in
+        join.left.id == join.right.userId
+    }
+    .join(Comment.self) { join in
+        join.left.id == join.right.postId
+    }
+    .where { $0.isActive == true }
+    .all()
+
+// Many-to-many through junction table
+let postsWithTags = try await repo.query(Post.self)
+    .joinThrough(Tag.self, through: PostTag.self) { join in
+        let firstJoin = join.main.id == join.junction.postId
+        let secondJoin = join.junction.tagId == join.target.id
+        return (firstJoin, secondJoin)
+    }
+    .where { $0.published == true }
+    .all()
+
+// FUTURE: Revolutionary join syntax with tuple selection! 🚀
+// Coming in v0.2.0 - select across joined tables:
+/*
+let userPostData = try await repo.query(User.self)
+    .join(Post.self) { join in
+        join.left.id == join.right.userId
+    }
+    .select { ($0.name, $1.title, $1.createdAt) }  // User, Post, Comment
+    .where { $0.isActive == true && $1.published == true }
+    .all()  // Returns [(String, String, Date)]
+*/
+```
+
+### 6. Transactions
 
 ```swift
 // Automatic transaction handling
@@ -159,7 +237,7 @@ try await repo.transaction { transactionRepo in
 }
 ```
 
-### 6. Convenience Methods
+### 7. Convenience Methods
 
 ```swift
 // Direct Spectro operations
@@ -201,19 +279,53 @@ struct User: Schema {
 }
 ```
 
-### Type-Safe KeyPath Queries
+### Beautiful Consistent Closure Syntax + Revolutionary Features
 
 ```swift
-// Compile-time type safety - these won't compile if field types don't match
-let query = repo.query(User.self)
-    .where(\.name, .equals, "John")        // String comparison
-    .where(\.age, .greaterThan, 18)        // Int comparison
-    .where(\.isActive, .equals, true)      // Bool comparison
-    .where(\.createdAt, .lessThan, Date()) // Date comparison
-    .orderBy(\.name, .asc)                 // Type-safe ordering
+// 🎯 REVOLUTIONARY: Tuple-based field selection!
+let userInfo = try await repo.query(User.self)
+    .select { ($0.name, $0.email, $0.age) }      // Returns [(String, String, Int)]
+    .where { $0.isActive == true }
+    .orderBy { $0.createdAt }
     .limit(10)
+    .all()
 
-let users = try await query.all()
+// 📝 Rich string functions with beautiful syntax
+let searchUsers = try await repo.query(User.self)
+    .where { $0.name.iContains("john") }         // Case-insensitive contains
+    .where { $0.email.endsWith("@company.com") } // String functions
+    .where { $0.bio.isNotNull() }                // Null handling
+    .select { ($0.name, $0.email) }              // Tuple selection
+    .all()
+
+// 📅 Smart date helpers - no more complex date logic!
+let recentActiveUsers = try await repo.query(User.self)
+    .where { $0.createdAt.isThisMonth() }        // Built-in date helpers
+    .where { $0.lastLoginAt.isThisWeek() }
+    .where { $0.age.between(18, and: 65) }
+    .orderBy({ $0.lastLoginAt }, .desc)
+    .select { ($0.name, $0.lastLoginAt) }
+    .all()
+
+// 🔥 Everything is beautifully consistent - no mixed syntax!
+let perfectQuery = repo.query(User.self)
+    .select { $0.name }                          // Closure (returns [String])
+    .where { $0.age > 25 }                       // Closure  
+    .orderBy { $0.createdAt }                    // Closure
+    .limit(10)                                   // Value (makes sense)
+    .all()
+
+// 🚀 Advanced pattern matching with full power
+let powerUsers = try await repo.query(User.self)
+    .where { user in
+        (user.email.ilike("%@premium.com") || user.tier == "VIP") &&
+        user.createdAt.isThisYear() &&
+        user.loginCount > 50
+    }
+    .select { ($0.name, $0.email, $0.tier, $0.loginCount) }
+    .orderBy({ $0.loginCount }, .desc)
+    .limit(100)
+    .all()
 ```
 
 ### Clean, Explicit API
@@ -337,9 +449,10 @@ struct UserTests {
         let found = try await repo.get(User.self, id: saved.id)
         #expect(found?.name == "Test User")
         
-        // Query
+        // Query with consistent closure syntax
         let adults = try await repo.query(User.self)
-            .where(\.age, .greaterThan, 18)
+            .where { $0.age > 18 }
+            .orderBy { $0.createdAt }
             .all()
         #expect(adults.count > 0)
     }
@@ -383,26 +496,34 @@ try await repo.transaction { transactionRepo in
 ```swift
 // ✅ Use specific queries instead of loading all data
 let activeUsers = try await repo.query(User.self)
-    .where(\.isActive, .equals, true)
+    .select { $0.name }
+    .select { $0.email }
+    .where { $0.isActive == true }
+    .orderBy { $0.createdAt }
     .limit(100)
     .all()
 
 // ✅ Use counts when you only need numbers
 let userCount = try await repo.query(User.self)
-    .where(\.isActive, .equals, true)
+    .where { $0.isActive == true }
     .count()
 
 // ✅ Use first() for single results
 let user = try await repo.query(User.self)
-    .where(\.email, .equals, "unique@example.com")
+    .where { $0.email == "unique@example.com" }
     .first()
 ```
 
 ## 🗺️ Roadmap
 
-### ✅ Completed (v0.1.0)
+### ✅ Completed (v0.2.0)
 - [x] Property wrapper schema definitions
-- [x] KeyPath-based type-safe queries  
+- [x] **100% closure-based syntax** - Beautiful consistency throughout  
+- [x] **Revolutionary tuple selection** - `select { ($0.name, $0.email) }`
+- [x] **Rich string functions** - `ilike()`, `startsWith()`, `contains()`, `iContains()`, etc.
+- [x] **Smart date helpers** - `isToday()`, `isThisWeek()`, `before()`, `after()`
+- [x] **Null handling** - `isNull()`, `isNotNull()` built-in
+- [x] Beautiful join syntax with `through` support
 - [x] Actor-based connection management
 - [x] Comprehensive error handling (zero crashes)
 - [x] Transaction support with automatic rollback
@@ -410,20 +531,21 @@ let user = try await repo.query(User.self)
 - [x] Swift 6 compatibility
 - [x] Production safety (no fatalError/try!)
 
-### 🚧 Next Release (v0.2.0)
-- [ ] Relationship support (`@HasMany`, `@HasOne`, `@BelongsTo`)
-- [ ] Join queries and eager loading
-- [ ] Integer primary key support
+### 🚧 Next Release (v0.3.0)
+- [ ] **Tuple selection for joins** - `select { ($0.name, $1.title, $2.content) }`
+- [ ] Eager loading with automatic relationship resolution
+- [ ] Integer primary key support (auto-incrementing)
 - [ ] Migration system integration
 - [ ] Query caching layer
+- [ ] Bulk operations for performance
 
 ### 📋 Future Releases
-- [ ] Many-to-many relationships
-- [ ] Bulk operations
 - [ ] Prepared statement caching
 - [ ] Query performance analytics
 - [ ] Advanced validation layer
 - [ ] Multiple database support
+- [ ] GraphQL-style field selection
+- [ ] Real-time query subscriptions
 
 ## 🤝 Contributing
 

@@ -60,7 +60,7 @@ struct SimpleTransactionTests {
                 throw SpectroError.invalidQuery("Test rollback")
             }
             
-            #expect(false, "Should have thrown an error")
+            #expect(Bool(false), "Should have thrown an error")
         } catch let error as SpectroError {
             // Should catch the error we threw
             if case .invalidQuery(let message) = error {

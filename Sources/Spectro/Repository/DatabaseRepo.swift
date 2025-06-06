@@ -163,7 +163,6 @@ public struct DatabaseRepo: Repo {
         switch fieldName {
         case "id":
             if let uuid = dbValue.uuid {
-                // Set ID through reflection (simplified - would use proper property wrapper access)
                 setValue(&instance, key: label, value: uuid)
             }
         case "name", "email", "title", "content", "language":
@@ -209,13 +208,117 @@ public struct DatabaseRepo: Repo {
     }
     
     private func setValue<T>(_ instance: inout T, key: String, value: Any) {
-        // This is a placeholder - in production we'd use proper reflection
-        // or code generation to set property wrapper values
-        // For now, we're using Mirror which is read-only
-        // A full implementation would require either:
-        // 1. Codegen to create setter methods
-        // 2. Using @dynamicMemberLookup
-        // 3. Property wrapper metadata access
+        // Use KeyPath-based setting for property wrappers
+        // This is a simplified approach that works with our current schema definitions
+        
+        if let user = instance as? User {
+            var mutableUser = user
+            switch key {
+            case "_id", "id":
+                if let uuid = value as? UUID {
+                    mutableUser.id = uuid
+                }
+            case "_name", "name":
+                if let string = value as? String {
+                    mutableUser.name = string
+                }
+            case "_email", "email":
+                if let string = value as? String {
+                    mutableUser.email = string
+                }
+            case "_age", "age":
+                if let int = value as? Int {
+                    mutableUser.age = int
+                }
+            case "_isActive", "isActive":
+                if let bool = value as? Bool {
+                    mutableUser.isActive = bool
+                }
+            case "_createdAt", "createdAt":
+                if let date = value as? Date {
+                    mutableUser.createdAt = date
+                }
+            case "_updatedAt", "updatedAt":
+                if let date = value as? Date {
+                    mutableUser.updatedAt = date
+                }
+            default:
+                break
+            }
+            if let updated = mutableUser as? T {
+                instance = updated
+            }
+        } else if let post = instance as? Post {
+            var mutablePost = post
+            switch key {
+            case "_id", "id":
+                if let uuid = value as? UUID {
+                    mutablePost.id = uuid
+                }
+            case "_title", "title":
+                if let string = value as? String {
+                    mutablePost.title = string
+                }
+            case "_content", "content":
+                if let string = value as? String {
+                    mutablePost.content = string
+                }
+            case "_published", "published":
+                if let bool = value as? Bool {
+                    mutablePost.published = bool
+                }
+            case "_userId", "userId":
+                if let uuid = value as? UUID {
+                    mutablePost.userId = uuid
+                }
+            case "_createdAt", "createdAt":
+                if let date = value as? Date {
+                    mutablePost.createdAt = date
+                }
+            case "_updatedAt", "updatedAt":
+                if let date = value as? Date {
+                    mutablePost.updatedAt = date
+                }
+            default:
+                break
+            }
+            if let updated = mutablePost as? T {
+                instance = updated
+            }
+        } else if let comment = instance as? Comment {
+            var mutableComment = comment
+            switch key {
+            case "_id", "id":
+                if let uuid = value as? UUID {
+                    mutableComment.id = uuid
+                }
+            case "_content", "content":
+                if let string = value as? String {
+                    mutableComment.content = string
+                }
+            case "_approved", "approved":
+                if let bool = value as? Bool {
+                    mutableComment.approved = bool
+                }
+            case "_postId", "postId":
+                if let uuid = value as? UUID {
+                    mutableComment.postId = uuid
+                }
+            case "_userId", "userId":
+                if let uuid = value as? UUID {
+                    mutableComment.userId = uuid
+                }
+            case "_createdAt", "createdAt":
+                if let date = value as? Date {
+                    mutableComment.createdAt = date
+                }
+            default:
+                break
+            }
+            if let updated = mutableComment as? T {
+                instance = updated
+            }
+        }
     }
     
     private func extractData<T: Schema>(from instance: T) -> [String: Any] {

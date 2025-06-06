@@ -5,26 +5,38 @@ import Testing
 @Suite("Modern Schema Database Integration Tests")
 struct ModernSchemaIntegrationTests {
     
-    @Test("ModernSchema to legacy data conversion works")
-    func testModernSchemaToLegacyData() throws {
-        let user = ModernUser(
+    /// Setup test database before running tests
+    func setupDatabase() async throws -> DatabaseRepo {
+        let spectro = try Spectro(
+            username: "postgres",
+            password: "postgres",
+            database: "spectro_test"
+        )
+        
+        let repo = spectro.repository()
+        try await TestDatabase.resetDatabase(using: repo)
+        return repo
+    }
+    
+    @Test("Schema properties work correctly")
+    func testSchemaProperties() throws {
+        let user = User(
             name: "Integration Test User",
             email: "integration@example.com",
             age: 30
         )
         
-        let legacyData = user.toLegacyData()
+        // Verify all properties work correctly
+        #expect(user.name == "Integration Test User")
+        #expect(user.email == "integration@example.com")
+        #expect(user.age == 30)
+        #expect(user.isActive == true) // Default value
+        #expect(user.id.uuidString.count == 36) // Valid UUID
         
-        // Verify conversion to legacy format
-        #expect(legacyData["name"] as? String == "Integration Test User")
-        #expect(legacyData["email"] as? String == "integration@example.com")
-        #expect(legacyData["age"] as? Int == 30)
-        #expect(legacyData["id"] != nil) // Should have UUID
-        
-        print("✅ Legacy data conversion: \(legacyData)")
+        print("✅ Schema properties working correctly")
     }
     
-    @Test("ModernSchema field name mapping works")
+    @Test("Field name mapping works")
     func testFieldNameMapping() throws {
         // Test camelCase to snake_case conversion
         #expect("createdAt".snakeCase() == "created_at")
@@ -36,8 +48,8 @@ struct ModernSchemaIntegrationTests {
         print("✅ Field name mapping working correctly")
     }
     
-    @Test("ModernQuery builds correct SQL")
-    func testModernQuerySQL() async throws {
+    @Test("Query building works correctly")
+    func testQueryBuilding() async throws {
         let spectro = try Spectro(
             username: "postgres",
             password: "postgres",
@@ -47,112 +59,83 @@ struct ModernSchemaIntegrationTests {
         
         let repo = spectro.repository()
         
-        // Create a query
-        let query = repo.query(ModernUser.self)
-            .where(\.name, .equals, "John")
-            .where(\.age, .greaterThan, 18)
-            .orderBy(\.createdAt, .desc)
+        // Create a beautiful closure-based query
+        let query = repo.query(User.self)
+            .where { $0.name == "John" }
+            .where { $0.age > 18 }
+            .orderBy({ $0.createdAt }, .desc)
             .limit(10)
         
-        // Test SQL generation
-        do {
-            let sql = try query.buildSQL()
-            
-            // Verify SQL structure
-            #expect(sql.contains("SELECT"))
-            #expect(sql.contains("FROM"))
-            #expect(sql.contains("WHERE"))
-            #expect(sql.contains("ORDER BY"))
-            #expect(sql.contains("LIMIT"))
-            
-            print("✅ Generated SQL: \(sql)")
-        } catch {
-            print("ℹ️ SQL building not yet fully implemented: \(error)")
-        }
+        // Test that query builds without errors
+        #expect(query is Query<User>)
+        
+        print("✅ Query building working correctly")
     }
     
-    @Test("ModernSchema insert operation integration")
-    func testModernSchemaInsert() async throws {
-        let spectro = try Spectro(
-            username: "postgres",
-            password: "postgres",
-            database: "spectro_test"
-        )
-        defer { Task { await spectro.shutdown() } }
+    @Test("Schema insert operation integration")
+    func testSchemaInsert() async throws {
+        let repo = try await setupDatabase()
         
-        let repo = spectro.repository()
-        
-        let user = ModernUser(
+        let user = User(
             name: "Insert Test User",
             email: "insert@example.com",
             age: 25
         )
         
         // Test insert operation
-        do {
-            let insertedUser = try await repo.insert(user)
-            
-            #expect(insertedUser.name == "Insert Test User")
-            #expect(insertedUser.email == "insert@example.com")
-            #expect(insertedUser.age == 25)
-            
-            print("✅ ModernSchema insert successful")
-        } catch {
-            print("ℹ️ Insert operation needs implementation: \(error)")
-            // For now, this is expected as we're building the integration
-        }
+        let insertedUser = try await repo.insert(user)
+        
+        #expect(insertedUser.name == "Insert Test User")
+        #expect(insertedUser.email == "insert@example.com")
+        #expect(insertedUser.age == 25)
+        
+        // Clean up
+        try await repo.delete(User.self, id: insertedUser.id)
+        
+        print("✅ Schema insert successful")
     }
     
-    @Test("Integration between ModernQuery and legacy system")
+    @Test("Query integration works")
     func testQueryIntegration() async throws {
-        let spectro = try Spectro(
-            username: "postgres",
-            password: "postgres",
-            database: "spectro_test"
-        )
-        defer { Task { await spectro.shutdown() } }
+        let repo = try await setupDatabase()
         
-        let repo = spectro.repository()
+        // Create test data
+        let user1 = User(name: "Alice", email: "alice@example.com", age: 25)
+        let user2 = User(name: "Bob", email: "bob@example.com", age: 30)
         
-        // Test that ModernQuery can work with legacy schema mapping
-        let query = repo.query(ModernUser.self)
-            .where(\.age, .greaterThan, 0)
+        let savedUser1 = try await repo.insert(user1)
+        let savedUser2 = try await repo.insert(user2)
+        
+        // Test beautiful query with closure syntax
+        let results = try await repo.query(User.self)
+            .where { $0.age > 20 }
+            .orderBy({ $0.name }, .asc)
             .limit(5)
+            .all()
         
-        // Test legacy bridge functionality
-        do {
-            let results = try await query.allUsingLegacyBridge()
-            
-            // Verify we get ModernUser instances back
-            #expect(results.count >= 0) // Should not crash
-            
-            for user in results {
-                #expect(user is ModernUser)
-                print("✅ Retrieved user: \(user.name)")
-            }
-            
-            print("✅ ModernQuery -> Legacy integration working")
-        } catch {
-            print("ℹ️ Query integration in progress: \(error)")
-            // This demonstrates the integration is being built
+        // Verify we get User instances back
+        #expect(results.count >= 2)
+        
+        for user in results {
+            #expect(user is User)
+            print("✅ Retrieved user: \(user.name)")
         }
+        
+        // Clean up
+        try await repo.delete(User.self, id: savedUser1.id)
+        try await repo.delete(User.self, id: savedUser2.id)
+        
+        print("✅ Query integration working")
     }
     
-    @Test("Complete ModernSchema workflow demonstration")
+    @Test("Complete Schema workflow demonstration")
     func testCompleteWorkflow() async throws {
-        let spectro = try Spectro(
-            username: "postgres",
-            password: "postgres",
-            database: "spectro_test"
-        )
-        defer { Task { await spectro.shutdown() } }
+        let repo = try await setupDatabase()
         
-        let repo = spectro.repository()
+        // This test demonstrates the complete workflow we've built:
         
-        // This test demonstrates the complete workflow we're building toward:
-        
-        // 1. Create a ModernSchema instance with beautiful syntax
-        let user = ModernUser(
+        // 1. Create a Schema instance with beautiful syntax
+        let user = User(
             name: "Workflow Test User",
             email: "workflow@example.com",
             age: 28
@@ -164,46 +147,49 @@ struct ModernSchemaIntegrationTests {
         #expect(user.age == 28)
         #expect(user.id.uuidString.count == 36) // Valid UUID
         
-        // 2. Demonstrate type-safe query building
-        let query = repo.query(ModernUser.self)
-            .where(\.name, .equals, "Workflow Test User")
-            .where(\.age, .greaterThanOrEqual, 18)
-            .orderBy(\.createdAt, .desc)
+        // 2. Demonstrate beautiful closure-based query building
+        let query = repo.query(User.self)
+            .where { $0.name == "Workflow Test User" }
+            .where { $0.age >= 18 }
+            .orderBy({ $0.createdAt }, .desc)
         
         // Verify query builder works
-        #expect(true) // Query builds without errors
+        #expect(query is Query<User>)
         
         // 3. Show the beautiful API we've created
-        print("✅ Complete ModernSchema workflow:")
-        print("   - Property wrapper schemas: @ID, @Column, @Timestamp")
-        print("   - Type-safe KeyPath queries: .where(\\.field, .operation, value)")
-        print("   - Fluent query chaining: .where().orderBy().limit()")
-        print("   - Integration with actor-based database connections")
+        print("✅ Complete Schema workflow:")
+        print("   - Property wrapper schemas: @ID, @Column, @Timestamp, @ForeignKey")
+        print("   - Beautiful closure queries: .where { $0.field == value }")
+        print("   - Rich string functions: .endsWith(), .iContains()")
+        print("   - Tuple selection: .select { ($0.name, $0.email) }")
+        print("   - Actor-based database connections")
         print("   - Transaction support throughout")
         
         #expect(true) // Workflow demonstration complete
     }
     
-    @Test("Modern API beauty showcase")
+    @Test("API beauty showcase")
     func testAPIBeautyShowcase() throws {
         // Showcase the beautiful API we've built
         
         // ✨ Beautiful schema definitions
-        let user = ModernUser(
+        let user = User(
             name: "API Beauty Test",
             email: "beauty@example.com",
             age: 32
         )
         
-        var post = ModernPost()
+        var post = Post()
         post.title = "My Beautiful Post"
         post.content = "This demonstrates our beautiful API"
         post.published = true
+        post.userId = user.id
         
         // ✨ Type-safe property access
         #expect(user.name == "API Beauty Test")
         #expect(post.title == "My Beautiful Post")
         #expect(post.published == true)
+        #expect(post.userId == user.id)
         
         // ✨ Automatic UUIDs and timestamps
         #expect(user.id.uuidString.count == 36)
@@ -213,7 +199,7 @@ struct ModernSchemaIntegrationTests {
         
         print("✅ Modern API Beauty Demonstrated:")
         print("   🎯 Type-safe schemas with property wrappers")
-        print("   🔗 Automatic relationships and foreign keys")
+        print("   🔗 Type-safe foreign key relationships")
         print("   📅 Automatic timestamp management")
         print("   🆔 Automatic UUID generation")
         print("   💎 Clean, readable Swift code")

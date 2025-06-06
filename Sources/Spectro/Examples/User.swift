@@ -31,7 +31,7 @@ public struct Post: Schema {
     @Column public var title: String = ""
     @Column public var content: String = ""
     @Column public var published: Bool = false
-    @Column public var userId: UUID = UUID()
+    @ForeignKey public var userId: UUID = UUID()
     @Timestamp public var createdAt: Date = Date()
     @Timestamp public var updatedAt: Date = Date()
     
@@ -45,8 +45,8 @@ public struct Comment: Schema {
     @ID public var id: UUID
     @Column public var content: String = ""
     @Column public var approved: Bool = false
-    @Column public var postId: UUID = UUID()
-    @Column public var userId: UUID = UUID()
+    @ForeignKey public var postId: UUID = UUID()
+    @ForeignKey public var userId: UUID = UUID()
     @Timestamp public var createdAt: Date = Date()
     
     public init() {}
@@ -60,7 +60,31 @@ public struct Profile: Schema {
     @Column public var language: String = "en"
     @Column public var optInEmail: Bool = false
     @Column public var verified: Bool = false
-    @Column public var userId: UUID = UUID()
+    @ForeignKey public var userId: UUID = UUID()
+    @Timestamp public var createdAt: Date = Date()
+    
+    public init() {}
+}
+
+/// Tag schema for many-to-many relationship
+public struct Tag: Schema {
+    public static let tableName = "tags"
+    
+    @ID public var id: UUID
+    @Column public var name: String = ""
+    @Column public var color: String = ""
+    @Timestamp public var createdAt: Date = Date()
+    
+    public init() {}
+}
+
+/// PostTag junction table for many-to-many
+public struct PostTag: Schema {
+    public static let tableName = "post_tags"
+    
+    @ID public var id: UUID
+    @ForeignKey public var postId: UUID = UUID()
+    @ForeignKey public var tagId: UUID = UUID()
     @Timestamp public var createdAt: Date = Date()
     
     public init() {}
