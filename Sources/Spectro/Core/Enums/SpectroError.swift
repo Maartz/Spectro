@@ -21,13 +21,14 @@ public enum SpectroError: Error, Sendable {
     case invalidData(field: String, value: Any?, reason: String)
     case validationError(field: String, errors: [String])
     case constraintViolation(String)
+    case databaseError(reason: String)
     
     // MARK: - Schema Errors
-    case invalidSchema(name: String, reason: String)
+    case invalidSchema(reason: String)
     case invalidField(schema: String, field: String)
     case relationshipError(from: String, to: String, reason: String)
     case relationshipNotFound(relationship: String, schema: String)
-    case missingRequiredField(schema: String, field: String)
+    case missingRequiredField(String)
     
     // MARK: - Transaction Errors
     case transactionFailed(underlying: Error)
@@ -88,17 +89,19 @@ extension SpectroError: LocalizedError {
             return "Validation failed for field '\(field)': \(errors.joined(separator: ", "))"
         case .constraintViolation(let message):
             return "Database constraint violation: \(message)"
+        case .databaseError(let reason):
+            return "Database error: \(reason)"
             
-        case .invalidSchema(let name, let reason):
-            return "Invalid schema '\(name)': \(reason)"
+        case .invalidSchema(let reason):
+            return "Invalid schema: \(reason)"
         case .invalidField(let schema, let field):
             return "Invalid field '\(field)' in schema '\(schema)'"
         case .relationshipError(let from, let to, let reason):
             return "Relationship error from '\(from)' to '\(to)': \(reason)"
         case .relationshipNotFound(let relationship, let schema):
             return "Relationship '\(relationship)' not found on schema '\(schema)'"
-        case .missingRequiredField(let schema, let field):
-            return "Required field '\(field)' missing in schema '\(schema)'"
+        case .missingRequiredField(let field):
+            return "Required field '\(field)' missing"
             
         case .transactionFailed(let error):
             return "Transaction failed: \(error.localizedDescription)"

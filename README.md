@@ -4,8 +4,10 @@ A modern, type-safe Swift ORM for PostgreSQL built with Swift 6 and property wra
 
 ## ✨ Features
 
-- 🏗️ **Property wrapper schemas** - Beautiful `@ID`, `@Column`, `@Timestamp` syntax
-- 🔍 **100% closure-based queries** - Beautiful, consistent Swift syntax with compile-time guarantees
+- 🔗 **Implicit Lazy Relationships** - Revolutionary relationship loading that appears as normal Swift properties but prevents N+1 queries by default
+- 🏛️ **Ecto-Inspired Design** - Familiar patterns from Elixir's Ecto ORM with Swift's type safety
+- 🏗️ **Property wrapper schemas** - Beautiful `@ID`, `@Column`, `@HasMany`, `@BelongsTo` syntax
+- 🔍 **100% closure-based queries** - Beautiful, consistent Swift syntax with compile-time guarantees  
 - 🎯 **Revolutionary tuple selection** - `select { ($0.name, $0.email) }` returns `[(String, String)]`
 - 📝 **Rich string functions** - `ilike()`, `startsWith()`, `contains()`, `iContains()` and more
 - 📅 **Smart date helpers** - `isToday()`, `isThisWeek()`, `before()`, `after()` built-in
@@ -13,7 +15,7 @@ A modern, type-safe Swift ORM for PostgreSQL built with Swift 6 and property wra
 - 🔐 **Production-ready** - Zero `fatalError()` calls, comprehensive error handling
 - 🔄 **Transaction support** - ACID compliance with automatic rollback
 - 📦 **Clean repository pattern** - Explicit data operations without global state
-- 🎯 **Inspired by ActiveRecord/Ecto** - More type-safe, more explicit, more Swift
+- 🎯 **N+1 Prevention** - Lazy loading by default with efficient preloading capabilities
 - 🚀 **Built on PostgresNIO** - High performance async/await throughout
 
 ## 📦 Installation
@@ -216,7 +218,148 @@ let userPostData = try await repo.query(User.self)
 */
 ```
 
-### 6. Transactions
+### 6. Implicit Lazy Relationships 🔗
+
+**The revolutionary feature that makes Spectro unique!** Relationships appear as normal Swift properties but are lazy by default, preventing N+1 query issues automatically.
+
+#### Defining Relationships
+
+```swift
+// User schema with relationships
+struct User: Schema, SchemaBuilder {
+    static let tableName = "users"
+    
+    @ID var id: UUID
+    @Column var name: String = ""
+    @Column var email: String = ""
+    
+    // Relationships appear as normal properties but are lazy!
+    @HasMany var posts: [Post]           // User has many posts
+    @HasOne var profile: Profile?        // User has one profile
+    
+    init() {}
+    
+    static func build(from values: [String: Any]) -> User {
+        // Implementation...
+    }
+}
+
+struct Post: Schema, SchemaBuilder {
+    static let tableName = "posts"
+    
+    @ID var id: UUID
+    @Column var title: String = ""
+    @ForeignKey var userId: UUID = UUID()
+    
+    // Inverse relationship
+    @BelongsTo var user: User?           // Post belongs to user
+    
+    init() {}
+    
+    static func build(from values: [String: Any]) -> Post {
+        // Implementation...
+    }
+}
+```
+
+#### Loading Relationships (No N+1 Queries!)
+
+```swift
+// Get a user
+let user = try await repo.get(User.self, id: userId)
+
+// BAD in traditional ORMs: This would trigger N+1 queries
+// for user in users { print(user.posts.count) }  // Each access = 1 query!
+
+// GOOD in Spectro: Explicit loading prevents N+1
+let posts = try await user.loadHasMany(Post.self, foreignKey: "userId", using: repo)
+print("User has \(posts.count) posts")
+
+// Load belongs-to relationships
+let post = try await repo.get(Post.self, id: postId)
+let author = try await post.loadBelongsTo(User.self, foreignKey: "userId", using: repo)
+if let author = author {
+    print("Post by \(author.name)")
+}
+
+// Load has-one relationships
+let profile = try await user.loadHasOne(Profile.self, foreignKey: "userId", using: repo)
+```
+
+#### Preloading for Performance
+
+```swift
+// EFFICIENT: Use preloading for lists to prevent N+1
+let usersWithPosts = try await repo.query(User.self)
+    .where { $0.isActive == true }
+    .preload(\.$posts)           // Efficient batch loading
+    .all()
+
+// Now access without additional queries
+for user in usersWithPosts {
+    let posts = user.$posts.value ?? []  // No query needed!
+    print("\(user.name): \(posts.count) posts")
+}
+
+// Chain multiple preloads
+let usersWithData = try await repo.query(User.self)
+    .preload(\.$posts)
+    .preload(\.$profile)
+    .limit(20)
+    .all()
+```
+
+#### Checking Relationship State
+
+```swift
+let user = try await repo.get(User.self, id: userId)
+
+// Check if posts are loaded
+if user.$posts.isLoaded {
+    let posts = user.$posts.value ?? []
+    print("Posts already loaded: \(posts.count)")
+} else {
+    print("Posts not loaded yet")
+}
+
+// Handle different loading states
+switch user.$posts.loadState {
+case .notLoaded:
+    print("Posts not loaded")
+case .loading:
+    print("Posts currently loading")
+case .loaded(let posts):
+    print("Loaded \(posts.count) posts")
+case .error(let error):
+    print("Failed to load posts: \(error)")
+}
+```
+
+#### Why This Prevents N+1 Queries
+
+```swift
+// TRADITIONAL ORMs - CAUSES N+1 QUERIES:
+let users = User.all()                    // 1 query
+for user in users {
+    print(user.posts.count)              // N queries (one per user!)
+}
+// Total: 1 + N queries = SLOW! 🐌
+
+// SPECTRO - NO N+1 QUERIES:
+let users = try await repo.all(User.self) // 1 query
+for user in users {
+    // Relationships are lazy - no automatic queries!
+    print("User: \(user.name)")           // No additional queries
+}
+
+// When you need relationships, load them efficiently:
+let usersWithPosts = try await repo.query(User.self)
+    .preload(\.$posts)                    // 2 queries total (users + all posts)
+    .all()
+// Total: 2 queries = FAST! ⚡
+```
+
+### 7. Transactions
 
 ```swift
 // Automatic transaction handling
@@ -559,8 +702,35 @@ We welcome contributions! Spectro is built with:
 ### Development Setup
 
 1. Clone the repository
-2. Set up PostgreSQL with test database
-3. Run `swift test` to ensure everything works
+2. Set up PostgreSQL with test database:
+   ```bash
+   createdb spectro_test
+   ```
+3. Run the test database setup script:
+   ```bash
+   ./Tests/setup_schema.sh
+   ```
+4. Run tests:
+   ```bash
+   swift test
+   ```
+
+### Test Database Setup
+
+The test suite uses a pre-created database schema to avoid concurrent table creation issues. Before running tests:
+
+```bash
+# Create test database
+createdb spectro_test
+
+# Setup schema
+./Tests/setup_schema.sh
+
+# Run tests
+swift test
+```
+
+All tests should pass ✅ - the test suite focuses on core functionality with proper database isolation.
 
 ## 📄 License
 

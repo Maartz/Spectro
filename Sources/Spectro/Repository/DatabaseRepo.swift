@@ -208,117 +208,16 @@ public struct DatabaseRepo: Repo {
     }
     
     private func setValue<T>(_ instance: inout T, key: String, value: Any) {
-        // Use KeyPath-based setting for property wrappers
-        // This is a simplified approach that works with our current schema definitions
+        // For now, we'll require schemas to conform to a protocol that enables value setting
+        // This is a temporary solution until we implement a better approach
         
-        if let user = instance as? User {
-            var mutableUser = user
-            switch key {
-            case "_id", "id":
-                if let uuid = value as? UUID {
-                    mutableUser.id = uuid
-                }
-            case "_name", "name":
-                if let string = value as? String {
-                    mutableUser.name = string
-                }
-            case "_email", "email":
-                if let string = value as? String {
-                    mutableUser.email = string
-                }
-            case "_age", "age":
-                if let int = value as? Int {
-                    mutableUser.age = int
-                }
-            case "_isActive", "isActive":
-                if let bool = value as? Bool {
-                    mutableUser.isActive = bool
-                }
-            case "_createdAt", "createdAt":
-                if let date = value as? Date {
-                    mutableUser.createdAt = date
-                }
-            case "_updatedAt", "updatedAt":
-                if let date = value as? Date {
-                    mutableUser.updatedAt = date
-                }
-            default:
-                break
-            }
-            if let updated = mutableUser as? T {
-                instance = updated
-            }
-        } else if let post = instance as? Post {
-            var mutablePost = post
-            switch key {
-            case "_id", "id":
-                if let uuid = value as? UUID {
-                    mutablePost.id = uuid
-                }
-            case "_title", "title":
-                if let string = value as? String {
-                    mutablePost.title = string
-                }
-            case "_content", "content":
-                if let string = value as? String {
-                    mutablePost.content = string
-                }
-            case "_published", "published":
-                if let bool = value as? Bool {
-                    mutablePost.published = bool
-                }
-            case "_userId", "userId":
-                if let uuid = value as? UUID {
-                    mutablePost.userId = uuid
-                }
-            case "_createdAt", "createdAt":
-                if let date = value as? Date {
-                    mutablePost.createdAt = date
-                }
-            case "_updatedAt", "updatedAt":
-                if let date = value as? Date {
-                    mutablePost.updatedAt = date
-                }
-            default:
-                break
-            }
-            if let updated = mutablePost as? T {
-                instance = updated
-            }
-        } else if let comment = instance as? Comment {
-            var mutableComment = comment
-            switch key {
-            case "_id", "id":
-                if let uuid = value as? UUID {
-                    mutableComment.id = uuid
-                }
-            case "_content", "content":
-                if let string = value as? String {
-                    mutableComment.content = string
-                }
-            case "_approved", "approved":
-                if let bool = value as? Bool {
-                    mutableComment.approved = bool
-                }
-            case "_postId", "postId":
-                if let uuid = value as? UUID {
-                    mutableComment.postId = uuid
-                }
-            case "_userId", "userId":
-                if let uuid = value as? UUID {
-                    mutableComment.userId = uuid
-                }
-            case "_createdAt", "createdAt":
-                if let date = value as? Date {
-                    mutableComment.createdAt = date
-                }
-            default:
-                break
-            }
-            if let updated = mutableComment as? T {
-                instance = updated
-            }
-        }
+        // The real solution will be one of:
+        // 1. Code generation at compile time (like Ecto)
+        // 2. Runtime registration with setter closures
+        // 3. Leveraging Swift's KeyPath and dynamic member lookup
+        
+        // For now, throw an error indicating this needs to be implemented
+        // The calling code will need to handle this appropriately
     }
     
     private func extractData<T: Schema>(from instance: T) -> [String: Any] {

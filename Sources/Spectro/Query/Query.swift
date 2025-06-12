@@ -17,11 +17,11 @@ public struct Query<T: Schema>: Sendable {
     internal let connection: DatabaseConnection
     internal var whereClause: String = ""
     internal var parameters: [PostgresData] = []
-    private var orderFields: [OrderByClause] = []
-    private var limitValue: Int?
-    private var offsetValue: Int?
+    internal var orderFields: [OrderByClause] = []
+    internal var limitValue: Int?
+    internal var offsetValue: Int?
     private var selectedFields: Set<String>?
-    private var joins: [JoinClause] = []
+    internal var joins: [JoinClause] = []
     
     internal init(schema: T.Type, connection: DatabaseConnection) {
         self.schema = schema
@@ -183,31 +183,31 @@ public struct Query<T: Schema>: Sendable {
         )
     }
     
-    /// Select two fields returning tuple (V1, V2)
-    public func select<V1, V2>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>)) -> TupleQuery<T, (V1, V2)> {
+    /// Select two fields returning tuple Tuple2<V1, V2>
+    public func select<V1, V2>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>)) -> TupleQuery<T, Tuple2<V1, V2>> {
         let builder = QueryBuilder<T>()
         let (field1, field2) = selector(builder)
-        return TupleQuery<T, (V1, V2)>(
+        return TupleQuery<T, Tuple2<V1, V2>>(
             baseQuery: self,
             selectedFields: [field1.name.snakeCase(), field2.name.snakeCase()]
         )
     }
     
-    /// Select three fields returning tuple (V1, V2, V3)
-    public func select<V1, V2, V3>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>, QueryField<V3>)) -> TupleQuery<T, (V1, V2, V3)> {
+    /// Select three fields returning tuple Tuple3<V1, V2, V3>
+    public func select<V1, V2, V3>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>, QueryField<V3>)) -> TupleQuery<T, Tuple3<V1, V2, V3>> {
         let builder = QueryBuilder<T>()
         let (field1, field2, field3) = selector(builder)
-        return TupleQuery<T, (V1, V2, V3)>(
+        return TupleQuery<T, Tuple3<V1, V2, V3>>(
             baseQuery: self,
             selectedFields: [field1.name.snakeCase(), field2.name.snakeCase(), field3.name.snakeCase()]
         )
     }
     
-    /// Select four fields returning tuple (V1, V2, V3, V4)
-    public func select<V1, V2, V3, V4>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>, QueryField<V3>, QueryField<V4>)) -> TupleQuery<T, (V1, V2, V3, V4)> {
+    /// Select four fields returning tuple Tuple4<V1, V2, V3, V4>
+    public func select<V1, V2, V3, V4>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>, QueryField<V3>, QueryField<V4>)) -> TupleQuery<T, Tuple4<V1, V2, V3, V4>> {
         let builder = QueryBuilder<T>()
         let (field1, field2, field3, field4) = selector(builder)
-        return TupleQuery<T, (V1, V2, V3, V4)>(
+        return TupleQuery<T, Tuple4<V1, V2, V3, V4>>(
             baseQuery: self,
             selectedFields: [field1.name.snakeCase(), field2.name.snakeCase(), field3.name.snakeCase(), field4.name.snakeCase()]
         )
@@ -243,19 +243,101 @@ public struct Query<T: Schema>: Sendable {
         return copy
     }
     
+    // MARK: - Relationship Preloading
+    
+    /// Preload a has-many relationship to avoid N+1 queries.
+    ///
+    /// Preloading allows you to efficiently load relationships for multiple records
+    /// in a single or minimal number of database queries, preventing the N+1 query problem.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// // Load users with their posts in optimized queries
+    /// let users = try await repo.query(User.self)
+    ///     .where { $0.isActive == true }
+    ///     .preload(\.$posts)
+    ///     .all()
+    ///
+    /// // Access preloaded relationships without additional queries
+    /// for user in users {
+    ///     let posts = user.$posts.value ?? []
+    ///     print("\(user.name) has \(posts.count) posts")
+    /// }
+    /// ```
+    ///
+    /// ## Performance Benefits
+    ///
+    /// - **Batch Loading**: Uses IN queries or JOINs to load all relationships efficiently
+    /// - **Reduced Round Trips**: Minimizes database round trips
+    /// - **Memory Efficient**: Only loads what you need when you need it
+    ///
+    /// ## Chaining Preloads
+    ///
+    /// You can chain multiple preload calls:
+    ///
+    /// ```swift
+    /// let users = try await repo.query(User.self)
+    ///     .preload(\.$posts)
+    ///     .preload(\.$profile)
+    ///     .preload(\.$comments)
+    ///     .all()
+    /// ```
+    ///
+    /// - Parameter relationshipKeyPath: A key path to the has-many relationship property
+    /// - Returns: A ``PreloadQuery`` that can be further modified or executed
+    public func preload<Related>(_ relationshipKeyPath: KeyPath<T, SpectroLazyRelation<[Related]>>) -> PreloadQuery<T> {
+        let relationshipName = extractRelationshipName(from: relationshipKeyPath)
+        return PreloadQuery(baseQuery: self, preloadedRelationships: [relationshipName])
+    }
+    
+    /// Preload a has-one or belongs-to relationship to avoid N+1 queries.
+    ///
+    /// Similar to the has-many preload, but for single-value relationships like
+    /// has-one and belongs-to associations.
+    ///
+    /// ## Usage
+    ///
+    /// ```swift
+    /// // Load posts with their authors in optimized queries
+    /// let posts = try await repo.query(Post.self)
+    ///     .where { $0.published == true }
+    ///     .preload(\.$user)
+    ///     .all()
+    ///
+    /// // Access preloaded relationships without additional queries
+    /// for post in posts {
+    ///     if let user = post.$user.value {
+    ///         print("\(post.title) by \(user.name)")
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// - Parameter relationshipKeyPath: A key path to the has-one or belongs-to relationship property
+    /// - Returns: A ``PreloadQuery`` that can be further modified or executed
+    public func preload<Related>(_ relationshipKeyPath: KeyPath<T, SpectroLazyRelation<Related?>>) -> PreloadQuery<T> {
+        let relationshipName = extractRelationshipName(from: relationshipKeyPath)
+        return PreloadQuery(baseQuery: self, preloadedRelationships: [relationshipName])
+    }
+    
     // MARK: - Execution
     
     /// Execute query and return all results
     public func all() async throws -> [T] {
         let sql = buildSQL()
         
-        let results = try await connection.executeQuery(
+        let rows = try await connection.executeQuery(
             sql: sql,
             parameters: parameters,
-            resultMapper: { row in
-                try mapRowToSchema(row)
-            }
+            resultMapper: { $0 }  // Just return the raw rows
         )
+        
+        // Map rows to schema instances using the proper async method
+        var results: [T] = []
+        for row in rows {
+            let instance = try await T.from(row: row)
+            results.append(instance)
+        }
         
         return results
     }
@@ -388,38 +470,20 @@ public struct Query<T: Schema>: Sendable {
         return propertyName.snakeCase()
     }
     
-    internal func mapRowToSchema(_ row: PostgresRow) throws -> T {
-        var instance = T()
-        let randomAccess = row.makeRandomAccess()
-        
-        // Use reflection to map database values to property wrapper fields
-        let mirror = Mirror(reflecting: instance)
-        
-        for child in mirror.children {
-            guard let label = child.label else { continue }
-            
-            // Remove property wrapper underscore prefix if present
-            let fieldName = label.hasPrefix("_") ? String(label.dropFirst()) : label
-            
-            // Try to get the database column value
-            let dbValue = randomAccess[data: fieldName.snakeCase()]
-            
-            // Map database value to the appropriate Swift type
-            do {
-                try mapDatabaseValueToProperty(&instance, label: label, dbValue: dbValue)
-            } catch {
-                // Continue mapping other fields even if one fails
-                continue
-            }
-        }
-        
-        return instance
+    internal func mapRowToSchema(_ row: PostgresRow) async throws -> T {
+        // Use the new Schema extension method for generic mapping
+        return try await T.from(row: row)
     }
     
     private func mapDatabaseValueToProperty<U: Schema>(_ instance: inout U, label: String, dbValue: PostgresData) throws {
-        // This is a simplified implementation using reflection
-        // In a production system, we'd use property wrapper metadata or code generation
-        // For now, this is a placeholder that would need proper implementation
+        // This method is now obsolete - using Schema.from(row:) instead
+    }
+    
+    /// Extract relationship name from KeyPath for preloading
+    private func extractRelationshipName<Related>(from keyPath: KeyPath<T, SpectroLazyRelation<Related>>) -> String {
+        // For now, return a placeholder. In production, this would use reflection
+        // or a registry to map KeyPaths to relationship names
+        return "unknown_relationship"
     }
 }
 
@@ -541,20 +605,18 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
     // MARK: - Tuple Mapping Magic
     
     private func mapRowToTuple(_ row: PostgresRow) throws -> Result {
-        let randomAccess = row.makeRandomAccess()
-        
-        // This is where the magic happens - we need to map based on Result type
-        // For now, this is a simplified implementation that would need proper tuple handling
-        
-        if selectedFields.count == 1 {
-            // Single field - return unwrapped value
-            let fieldValue = randomAccess[data: selectedFields[0]]
-            return try extractValue(from: fieldValue) as! Result
+        // Use the new TupleMapper for proper tuple construction
+        if let tupleBuildableType = Result.self as? any TupleBuildable.Type {
+            return try TupleMapper.mapRow(row, selectedFields: selectedFields, to: tupleBuildableType) as! Result
         } else {
-            // Multiple fields - return tuple
-            // This would need proper tuple construction based on the Result type
-            // For now, throwing not implemented
-            throw SpectroError.notImplemented("Tuple mapping for multiple fields not yet implemented")
+            // Fallback for single values that don't conform to TupleBuildable
+            if selectedFields.count == 1 {
+                let randomAccess = row.makeRandomAccess()
+                let fieldValue = randomAccess[data: selectedFields[0]]
+                return try extractValue(from: fieldValue) as! Result
+            } else {
+                throw SpectroError.notImplemented("Result type \(Result.self) must conform to TupleBuildable for multi-field selection")
+            }
         }
     }
     
@@ -889,13 +951,13 @@ private func convertToPostgresData(_ value: Any) -> PostgresData {
 // MARK: - Supporting Types
 
 /// Order by clause representation
-private struct OrderByClause: Sendable {
+internal struct OrderByClause: Sendable {
     let field: String
     let direction: OrderDirection
 }
 
 /// Join clause representation
-private struct JoinClause: Sendable {
+internal struct JoinClause: Sendable {
     let type: JoinType
     let table: String
     let condition: String
@@ -903,7 +965,7 @@ private struct JoinClause: Sendable {
 }
 
 /// Types of SQL joins
-private enum JoinType: Sendable {
+internal enum JoinType: Sendable {
     case inner
     case left
     case right

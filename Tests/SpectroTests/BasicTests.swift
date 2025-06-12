@@ -19,7 +19,7 @@ struct BasicSpectroTests {
         let repo = spectro.repository()
         
         // Just verify the types work
-        #expect(repo is DatabaseRepo)
+        #expect(repo is GenericDatabaseRepo)
         
         await spectro.shutdown()
     }

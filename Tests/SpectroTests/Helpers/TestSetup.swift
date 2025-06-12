@@ -25,7 +25,7 @@ public struct TestSetup {
     }
     
     /// Get a configured repository for tests that need direct repo access
-    public static func getRepo() throws -> DatabaseRepo {
+    public static func getRepo() throws -> GenericDatabaseRepo {
         let spectro = try getSpectro()
         return spectro.repository()
     }
