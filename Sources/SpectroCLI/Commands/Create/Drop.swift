@@ -20,62 +20,44 @@ struct Drop: AsyncParsableCommand {
     var database: String?
 
     func run() async throws {
-        try ConfigurationManager.shared.loadEnvFile()
+        try await ConfigurationManager.shared.loadEnvFile()
         var overrides: [String: String] = [:]
         if let username = username { overrides["username"] = username }
         if let password = password { overrides["password"] = password }
         if let database = database { overrides["database"] = database }
 
-        let config = ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
-        let spectro = try Spectro(
+        let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
+        let spectro = try await Spectro(
             hostname: config.hostname,
             port: config.port,
             username: config.username,
             password: config.password,
-            database: "postgres"
+            database: "postgres" // Use postgres database for dropping other databases
         )
 
-        defer { spectro.shutdown() }
+        defer {
+            Task {
+                await spectro.shutdown()
+            }
+        }
 
         let databaseName = config.database
-
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, Error>) in
-            let future = spectro.pools.withConnection { conn -> EventLoopFuture<Void> in
-                conn.sql().raw("SELECT 1 FROM pg_database WHERE datname = \(bind: databaseName)")
-                    .first()
-                    .flatMap { exists -> EventLoopFuture<Void> in
-                        if exists == nil {
-                            return conn.eventLoop.makeFailedFuture(
-                                DatabaseError.doesNotExist(databaseName))
-                        }
-                        return conn.sql().raw("DROP DATABASE \"\(unsafeRaw: databaseName)\"")
-                            .run()
-                    }
-            }
-
-            future.whenComplete { result in
-                switch result {
-                case .success:
-                    print("Database '\(databaseName)' dropped successfully")
-                    continuation.resume()
-                case .failure(let error):
-                    let dbError: Error
-                    if let psqlError = error as? PSQLError,
-                        let serverInfo = psqlError.serverInfo
-                    {
-                        if let message = serverInfo[.message],
-                            message.contains("does not exist")
-                        {
-                            dbError = DatabaseError.doesNotExist(databaseName)
-                        } else {
-                            dbError = DatabaseError.dropFailed(String(reflecting: error))
-                        }
-                    } else {
-                        dbError = DatabaseError.dropFailed(String(reflecting: error))
-                    }
-                    continuation.resume(throwing: dbError)
-                }
+        let repo = spectro.repository()
+        
+        do {
+            // Drop database - PostgreSQL will error if it doesn't exist
+            let dropQuery = "DROP DATABASE \"\(databaseName)\""
+            try await repo.executeRawSQL(dropQuery)
+            
+            print("Database '\(databaseName)' dropped successfully")
+        } catch {
+            if let psqlError = error as? PSQLError,
+                let serverInfo = psqlError.serverInfo,
+                let message = serverInfo[.message],
+                message.contains("does not exist") {
+                throw DatabaseError.doesNotExist(databaseName)
+            } else {
+                throw DatabaseError.dropFailed(String(reflecting: error))
             }
         }
     }

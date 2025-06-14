@@ -45,7 +45,9 @@ struct Rollback: AsyncParsableCommand {
     )
 
     defer {
-      spectro.shutdown()
+      Task {
+        await spectro.shutdown()
+      }
     }
 
     let manager = spectro.migrationManager()

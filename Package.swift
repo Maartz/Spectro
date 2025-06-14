@@ -10,7 +10,7 @@ let package = Package(
     products: [
         .library(name: "SpectroCore", targets: ["SpectroCore"]),
         .library(name: "SpectroKit", targets: ["Spectro"]),
-        // .executable(name: "spectro", targets: ["SpectroCLI"]), // Temporarily disabled
+        .executable(name: "spectro", targets: ["SpectroCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/postgres-kit.git", from: "2.7.0"),
@@ -35,15 +35,15 @@ let package = Package(
             ],
             path: "Sources/Spectro"
         ),
-        // .executableTarget(
-        //     name: "SpectroCLI",
-        //     dependencies: [
-        //         "SpectroCore",
-        //         "Spectro",
-        //         .product(name: "ArgumentParser", package: "swift-argument-parser"),
-        //     ],
-        //     path: "Sources/SpectroCLI"
-        // ),
+        .executableTarget(
+            name: "SpectroCLI",
+            dependencies: [
+                "SpectroCore",
+                "Spectro",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/SpectroCLI"
+        ),
         .testTarget(
             name: "SpectroTests",
             dependencies: [

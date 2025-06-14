@@ -42,7 +42,9 @@ struct Status: AsyncParsableCommand {
         )
 
         defer {
-            spectro.shutdown()
+            Task {
+                await spectro.shutdown()
+            }
         }
 
         let status = try await spectro.migrationManager().getFormattedStatus()

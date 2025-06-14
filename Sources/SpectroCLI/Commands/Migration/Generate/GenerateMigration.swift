@@ -40,10 +40,12 @@ struct GenerateMigration: AsyncParsableCommand {
         )
 
         defer {
-            spectro.shutdown()
+            Task {
+                await spectro.shutdown()
+            }
         }
 
-        let migrationManager = MigrationManager(spectro: spectro)
+        let migrationManager = spectro.migrationManager()
         let migrationGenerator = MigrationGenerator(migrationManager: migrationManager)  // Pass migrationManager here
 
         do {

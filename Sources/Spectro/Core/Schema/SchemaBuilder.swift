@@ -42,7 +42,33 @@ extension Schema {
         return instance
     }
     
-    /// Create an instance from a database row
+    /// Create an instance from a database row with full feature support.
+    ///
+    /// This is the primary method for converting PostgreSQL rows into schema instances.
+    /// It handles type conversion, field mapping, and uses `SchemaBuilder` when available.
+    ///
+    /// - Parameter row: PostgreSQL row data
+    /// - Returns: Properly constructed schema instance
+    /// - Throws: `SpectroError` if mapping or construction fails
+    ///
+    /// ## Process
+    ///
+    /// 1. Registers schema with `SchemaRegistry` to get metadata
+    /// 2. Extracts values from the row based on field types
+    /// 3. Converts database types to Swift types
+    /// 4. Uses `SchemaBuilder.build(from:)` if available
+    /// 5. Falls back to reflection-based population
+    ///
+    /// ## Type Conversion
+    ///
+    /// Supports automatic conversion for:
+    /// - `String`, `Int`, `Bool`, `UUID`, `Date`
+    /// - `Double`, `Float`, `Data`
+    /// - Property wrapper types
+    ///
+    /// ## Performance
+    ///
+    /// For best performance, implement `SchemaBuilder` to avoid reflection overhead.
     public static func from(row: PostgresRow) async throws -> Self {
         // Get schema metadata
         let metadata = await SchemaRegistry.shared.register(self)

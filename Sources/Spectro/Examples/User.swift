@@ -126,7 +126,7 @@ public struct Post: Schema, SchemaBuilder {
 }
 
 /// Comment schema
-public struct Comment: Schema {
+public struct Comment: Schema, SchemaBuilder {
     public static let tableName = "comments"
     
     @ID public var id: UUID
@@ -137,6 +137,33 @@ public struct Comment: Schema {
     @Timestamp public var createdAt: Date = Date()
     
     public init() {}
+    
+    // MARK: - SchemaBuilder Implementation
+    
+    public static func build(from values: [String: Any]) -> Comment {
+        var comment = Comment()
+        
+        if let id = values["id"] as? UUID {
+            comment.id = id
+        }
+        if let content = values["content"] as? String {
+            comment.content = content
+        }
+        if let approved = values["approved"] as? Bool {
+            comment.approved = approved
+        }
+        if let postId = values["postId"] as? UUID {
+            comment.postId = postId
+        }
+        if let userId = values["userId"] as? UUID {
+            comment.userId = userId
+        }
+        if let createdAt = values["createdAt"] as? Date {
+            comment.createdAt = createdAt
+        }
+        
+        return comment
+    }
 }
 
 /// Profile schema
@@ -181,7 +208,7 @@ public struct Profile: Schema, SchemaBuilder {
 }
 
 /// Tag schema for many-to-many relationship
-public struct Tag: Schema {
+public struct Tag: Schema, SchemaBuilder {
     public static let tableName = "tags"
     
     @ID public var id: UUID
@@ -190,10 +217,31 @@ public struct Tag: Schema {
     @Timestamp public var createdAt: Date = Date()
     
     public init() {}
+    
+    // MARK: - SchemaBuilder Implementation
+    
+    public static func build(from values: [String: Any]) -> Tag {
+        var tag = Tag()
+        
+        if let id = values["id"] as? UUID {
+            tag.id = id
+        }
+        if let name = values["name"] as? String {
+            tag.name = name
+        }
+        if let color = values["color"] as? String {
+            tag.color = color
+        }
+        if let createdAt = values["createdAt"] as? Date {
+            tag.createdAt = createdAt
+        }
+        
+        return tag
+    }
 }
 
 /// PostTag junction table for many-to-many
-public struct PostTag: Schema {
+public struct PostTag: Schema, SchemaBuilder {
     public static let tableName = "post_tags"
     
     @ID public var id: UUID
@@ -202,6 +250,27 @@ public struct PostTag: Schema {
     @Timestamp public var createdAt: Date = Date()
     
     public init() {}
+    
+    // MARK: - SchemaBuilder Implementation
+    
+    public static func build(from values: [String: Any]) -> PostTag {
+        var postTag = PostTag()
+        
+        if let id = values["id"] as? UUID {
+            postTag.id = id
+        }
+        if let postId = values["postId"] as? UUID {
+            postTag.postId = postId
+        }
+        if let tagId = values["tagId"] as? UUID {
+            postTag.tagId = tagId
+        }
+        if let createdAt = values["createdAt"] as? Date {
+            postTag.createdAt = createdAt
+        }
+        
+        return postTag
+    }
 }
 
 // MARK: - Implement FieldNameProvider for optimized KeyPath resolution

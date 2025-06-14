@@ -481,8 +481,25 @@ public struct Query<T: Schema>: Sendable {
     
     /// Extract relationship name from KeyPath for preloading
     private func extractRelationshipName<Related>(from keyPath: KeyPath<T, SpectroLazyRelation<Related>>) -> String {
-        // For now, return a placeholder. In production, this would use reflection
-        // or a registry to map KeyPaths to relationship names
+        // Use the KeyPath extension to extract property name
+        if let propertyName = keyPath.propertyName {
+            return propertyName
+        }
+        
+        // Fallback: parse the keyPath string representation
+        let keyPathString = String(describing: keyPath)
+        
+        // Handle patterns like "KeyPath<User, SpectroLazyRelation<Array<Post>>>" 
+        // We want to extract the property name which usually appears after the last dot
+        if let match = keyPathString.range(of: #"\.\$?([a-zA-Z_][a-zA-Z0-9_]*)>*$"#, options: .regularExpression) {
+            let matched = String(keyPathString[match])
+            let cleaned = matched
+                .replacingOccurrences(of: ".", with: "")
+                .replacingOccurrences(of: "$", with: "")
+                .replacingOccurrences(of: ">", with: "")
+            return cleaned
+        }
+        
         return "unknown_relationship"
     }
 }
@@ -552,7 +569,10 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
         return results
     }
     
-    /// Execute query and return first tuple result
+    /// Execute the query and return the first tuple result.
+    ///
+    /// - Returns: First tuple result or `nil` if no matches
+    /// - Throws: `SpectroError.queryExecutionFailed` if query fails
     public func first() async throws -> Result? {
         let results = try await limit(1).all()
         return results.first
