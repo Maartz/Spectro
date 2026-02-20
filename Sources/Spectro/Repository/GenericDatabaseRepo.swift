@@ -34,7 +34,7 @@ public actor GenericDatabaseRepo: Repo {
             throw SpectroError.invalidSchema(reason: "Schema \(T.self) has no primary key field")
         }
 
-        let sql = "SELECT * FROM \(metadata.tableName) WHERE \(primaryKey.snakeCase()) = $1"
+        let sql = "SELECT * FROM \(metadata.tableName.quoted) WHERE \(primaryKey.snakeCase().quoted) = $1"
 
         let rows = try await connection.executeQuery(
             sql: sql,
@@ -48,7 +48,7 @@ public actor GenericDatabaseRepo: Repo {
 
     public func all<T: Schema>(_ schema: T.Type) async throws -> [T] {
         let metadata = await SchemaRegistry.shared.register(schema)
-        let sql = "SELECT * FROM \(metadata.tableName)"
+        let sql = "SELECT * FROM \(metadata.tableName.quoted)"
         let rows = try await connection.executeQuery(sql: sql, resultMapper: { $0 })
 
         var results: [T] = []
@@ -62,12 +62,12 @@ public actor GenericDatabaseRepo: Repo {
         let metadata = await SchemaRegistry.shared.register(T.self)
         let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: true)
 
-        let columns = data.keys.joined(separator: ", ")
+        let columns = data.keys.map { $0.quoted }.joined(separator: ", ")
         let placeholders = (1...data.count).map { "$\($0)" }.joined(separator: ", ")
         let values = Array(data.values)
 
         let sql = """
-            INSERT INTO \(metadata.tableName) (\(columns))
+            INSERT INTO \(metadata.tableName.quoted) (\(columns))
             VALUES (\(placeholders))
             RETURNING *
             """
@@ -97,7 +97,7 @@ public actor GenericDatabaseRepo: Repo {
         var paramIndex = 1
 
         for (column, value) in changes {
-            setClause.append("\(column.snakeCase()) = $\(paramIndex)")
+            setClause.append("\(column.snakeCase().quoted) = $\(paramIndex)")
             values.append(try SchemaMapper.convertToPostgresData(value))
             paramIndex += 1
         }
@@ -105,9 +105,9 @@ public actor GenericDatabaseRepo: Repo {
         values.append(PostgresData(uuid: id))
 
         let sql = """
-            UPDATE \(metadata.tableName)
+            UPDATE \(metadata.tableName.quoted)
             SET \(setClause.joined(separator: ", "))
-            WHERE \(primaryKey.snakeCase()) = $\(paramIndex)
+            WHERE \(primaryKey.snakeCase().quoted) = $\(paramIndex)
             RETURNING *
             """
 
@@ -138,7 +138,7 @@ public actor GenericDatabaseRepo: Repo {
             throw SpectroError.invalidSchema(reason: "Schema \(T.self) has no primary key field")
         }
 
-        let sql = "DELETE FROM \(metadata.tableName) WHERE \(primaryKey.snakeCase()) = $1"
+        let sql = "DELETE FROM \(metadata.tableName.quoted) WHERE \(primaryKey.snakeCase().quoted) = $1"
         try await connection.executeUpdate(sql: sql, parameters: [PostgresData(uuid: id)])
     }
 

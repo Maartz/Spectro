@@ -60,6 +60,7 @@ public struct JoinQuery<T: Schema, U: Schema>: Sendable {
         let joinField = field(builder)
 
         var newBaseQuery = baseQuery
+        // qualifiedName is already pre-quoted ("table"."column")
         newBaseQuery.orderFields.append(OrderByClause(field: joinField.qualifiedName, direction: direction))
 
         return JoinQuery(baseQuery: newBaseQuery, joinedSchema: joinedSchema, joinClause: joinClause)
@@ -85,8 +86,8 @@ public struct JoinQuery<T: Schema, U: Schema>: Sendable {
         let mainTable = T.tableName
         let joinTable = U.tableName
 
-        var sql = "SELECT \(mainTable).*, \(joinTable).* FROM \(mainTable)"
-        sql += " \(joinClause.type.sql) \(joinTable) ON \(joinClause.condition)"
+        var sql = "SELECT \(mainTable.quoted).*, \(joinTable.quoted).* FROM \(mainTable.quoted)"
+        sql += " \(joinClause.type.sql) \(joinTable.quoted) ON \(joinClause.condition)"
 
         if !baseQuery.whereClause.isEmpty {
             sql += " WHERE \(baseQuery.whereClause)"

@@ -126,20 +126,27 @@ public struct Query<T: Schema>: Sendable {
     }
 
     // MARK: - Ordering
+    //
+    // Field names are quoted at storage time so buildOrderClause() can use
+    // them verbatim without risk of double-quoting qualified join fields.
 
     public func orderBy<V>(_ field: (QueryBuilder<T>) -> QueryField<V>) -> Query<T> {
         var copy = self
-        let builder = QueryBuilder<T>()
-        let queryField = field(builder)
-        copy.orderFields.append(OrderByClause(field: queryField.name.snakeCase(), direction: .asc))
+        let queryField = field(QueryBuilder<T>())
+        copy.orderFields.append(OrderByClause(
+            field: queryField.name.snakeCase().quoted,
+            direction: .asc
+        ))
         return copy
     }
 
     public func orderBy<V>(_ field: (QueryBuilder<T>) -> QueryField<V>, _ direction: OrderDirection) -> Query<T> {
         var copy = self
-        let builder = QueryBuilder<T>()
-        let queryField = field(builder)
-        copy.orderFields.append(OrderByClause(field: queryField.name.snakeCase(), direction: direction))
+        let queryField = field(QueryBuilder<T>())
+        copy.orderFields.append(OrderByClause(
+            field: queryField.name.snakeCase().quoted,
+            direction: direction
+        ))
         return copy
     }
 
@@ -149,24 +156,22 @@ public struct Query<T: Schema>: Sendable {
         then field2: (QueryBuilder<T>) -> QueryField<V2>,
         _ direction2: OrderDirection = .asc
     ) -> Query<T> {
-        let builder = QueryBuilder<T>()
         var copy = self
-        copy.orderFields.append(OrderByClause(field: field1(builder).name.snakeCase(), direction: direction1))
-        copy.orderFields.append(OrderByClause(field: field2(builder).name.snakeCase(), direction: direction2))
+        let builder = QueryBuilder<T>()
+        copy.orderFields.append(OrderByClause(field: field1(builder).name.snakeCase().quoted, direction: direction1))
+        copy.orderFields.append(OrderByClause(field: field2(builder).name.snakeCase().quoted, direction: direction2))
         return copy
     }
 
     // MARK: - Field Selection
 
     public func select<V>(_ selector: (QueryBuilder<T>) -> QueryField<V>) -> TupleQuery<T, V> {
-        let builder = QueryBuilder<T>()
-        let field = selector(builder)
+        let field = selector(QueryBuilder<T>())
         return TupleQuery<T, V>(baseQuery: self, selectedFields: [field.name.snakeCase()])
     }
 
     public func select<V1, V2>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>)) -> TupleQuery<T, Tuple2<V1, V2>> {
-        let builder = QueryBuilder<T>()
-        let (f1, f2) = selector(builder)
+        let (f1, f2) = selector(QueryBuilder<T>())
         return TupleQuery<T, Tuple2<V1, V2>>(
             baseQuery: self,
             selectedFields: [f1.name.snakeCase(), f2.name.snakeCase()]
@@ -174,8 +179,7 @@ public struct Query<T: Schema>: Sendable {
     }
 
     public func select<V1, V2, V3>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>, QueryField<V3>)) -> TupleQuery<T, Tuple3<V1, V2, V3>> {
-        let builder = QueryBuilder<T>()
-        let (f1, f2, f3) = selector(builder)
+        let (f1, f2, f3) = selector(QueryBuilder<T>())
         return TupleQuery<T, Tuple3<V1, V2, V3>>(
             baseQuery: self,
             selectedFields: [f1.name.snakeCase(), f2.name.snakeCase(), f3.name.snakeCase()]
@@ -183,22 +187,17 @@ public struct Query<T: Schema>: Sendable {
     }
 
     public func select<V1, V2, V3, V4>(_ selector: (QueryBuilder<T>) -> (QueryField<V1>, QueryField<V2>, QueryField<V3>, QueryField<V4>)) -> TupleQuery<T, Tuple4<V1, V2, V3, V4>> {
-        let builder = QueryBuilder<T>()
-        let (f1, f2, f3, f4) = selector(builder)
+        let (f1, f2, f3, f4) = selector(QueryBuilder<T>())
         return TupleQuery<T, Tuple4<V1, V2, V3, V4>>(
             baseQuery: self,
             selectedFields: [f1.name.snakeCase(), f2.name.snakeCase(), f3.name.snakeCase(), f4.name.snakeCase()]
         )
     }
 
-    /// Select specific fields (legacy API)
     public func selectFields<V>(_ field: (QueryBuilder<T>) -> QueryField<V>) -> Query<T> {
         var copy = self
-        let builder = QueryBuilder<T>()
-        let queryField = field(builder)
-        if copy.selectedFields == nil {
-            copy.selectedFields = []
-        }
+        let queryField = field(QueryBuilder<T>())
+        if copy.selectedFields == nil { copy.selectedFields = [] }
         copy.selectedFields?.insert(queryField.name.snakeCase())
         return copy
     }
@@ -220,13 +219,11 @@ public struct Query<T: Schema>: Sendable {
     // MARK: - Relationship Preloading
 
     public func preload<Related>(_ relationshipKeyPath: KeyPath<T, SpectroLazyRelation<[Related]>>) -> PreloadQuery<T> {
-        let relationshipName = extractRelationshipName(from: relationshipKeyPath)
-        return PreloadQuery(baseQuery: self, preloadedRelationships: [relationshipName])
+        PreloadQuery(baseQuery: self, preloadedRelationships: [extractRelationshipName(from: relationshipKeyPath)])
     }
 
     public func preload<Related>(_ relationshipKeyPath: KeyPath<T, SpectroLazyRelation<Related?>>) -> PreloadQuery<T> {
-        let relationshipName = extractRelationshipName(from: relationshipKeyPath)
-        return PreloadQuery(baseQuery: self, preloadedRelationships: [relationshipName])
+        PreloadQuery(baseQuery: self, preloadedRelationships: [extractRelationshipName(from: relationshipKeyPath)])
     }
 
     // MARK: - Execution
@@ -240,15 +237,13 @@ public struct Query<T: Schema>: Sendable {
         )
         var results: [T] = []
         for row in rows {
-            let instance = try await T.from(row: row)
-            results.append(instance)
+            results.append(try await T.from(row: row))
         }
         return results
     }
 
     public func first() async throws -> T? {
-        let results = try await limit(1).all()
-        return results.first
+        try await limit(1).all().first
     }
 
     public func firstOrFail() async throws -> T {
@@ -277,7 +272,7 @@ public struct Query<T: Schema>: Sendable {
     // MARK: - SQL Building
 
     internal func buildSQL() -> String {
-        let table = T.tableName
+        let table = T.tableName.quoted
         let selectClause = buildSelectClause()
         let joinClause = buildJoinClause()
         let orderClause = buildOrderClause()
@@ -285,53 +280,41 @@ public struct Query<T: Schema>: Sendable {
 
         var sql = "SELECT \(selectClause) FROM \(table)"
 
-        if !joinClause.isEmpty {
-            sql += " \(joinClause)"
-        }
-        if !whereClause.isEmpty {
-            sql += " WHERE \(whereClause)"
-        }
-        if !orderClause.isEmpty {
-            sql += " ORDER BY \(orderClause)"
-        }
-        if !limitClause.isEmpty {
-            sql += limitClause
-        }
+        if !joinClause.isEmpty { sql += " \(joinClause)" }
+        if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
+        if !orderClause.isEmpty { sql += " ORDER BY \(orderClause)" }
+        if !limitClause.isEmpty { sql += limitClause }
 
         return renumberPlaceholders(in: sql)
     }
 
     internal func buildCountSQL() -> String {
-        let table = T.tableName
+        let table = T.tableName.quoted
         let joinClause = buildJoinClause()
 
         var sql = "SELECT COUNT(*) as count FROM \(table)"
 
-        if !joinClause.isEmpty {
-            sql += " \(joinClause)"
-        }
-        if !whereClause.isEmpty {
-            sql += " WHERE \(whereClause)"
-        }
+        if !joinClause.isEmpty { sql += " \(joinClause)" }
+        if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
 
         return renumberPlaceholders(in: sql)
     }
 
     private func buildSelectClause() -> String {
-        if let fields = selectedFields, !fields.isEmpty {
-            return fields.sorted().joined(separator: ", ")
-        }
-        return "*"
+        guard let fields = selectedFields, !fields.isEmpty else { return "*" }
+        // selectedFields stores unquoted snake_case names; quote here for SQL
+        return fields.sorted().map { $0.quoted }.joined(separator: ", ")
     }
 
     internal func buildJoinClause() -> String {
         guard !joins.isEmpty else { return "" }
-        return joins.map { "\($0.type.sql) \($0.table) ON \($0.condition)" }
+        return joins.map { "\($0.type.sql) \($0.table.quoted) ON \($0.condition)" }
             .joined(separator: " ")
     }
 
     internal func buildOrderClause() -> String {
         guard !orderFields.isEmpty else { return "" }
+        // Fields are pre-quoted at storage time (see orderBy methods above)
         return orderFields.map { "\($0.field) \($0.direction.sql)" }
             .joined(separator: ", ")
     }
@@ -353,9 +336,7 @@ public struct Query<T: Schema>: Sendable {
     //
     // Conditions store SQL with `?` as an opaque positional sentinel.
     // Numbering ($1, $2, …) is applied once here, in a single left-to-right
-    // pass over the fully-assembled SQL string. This avoids the substring-
-    // replacement corruption that occurs when renumbering is attempted during
-    // condition composition (e.g. $10 containing $1 as a prefix).
+    // pass over the fully-assembled SQL string.
 
     private func renumberPlaceholders(in sql: String) -> String {
         var result = ""
@@ -374,17 +355,14 @@ public struct Query<T: Schema>: Sendable {
     // MARK: - Helpers
 
     internal func mapRowToSchema(_ row: PostgresRow) async throws -> T {
-        return try await T.from(row: row)
+        try await T.from(row: row)
     }
 
     private func extractRelationshipName<Related>(from keyPath: KeyPath<T, SpectroLazyRelation<Related>>) -> String {
-        if let propertyName = keyPath.propertyName {
-            return propertyName
-        }
+        if let propertyName = keyPath.propertyName { return propertyName }
         let keyPathString = String(describing: keyPath)
         if let match = keyPathString.range(of: #"\.\$?([a-zA-Z_][a-zA-Z0-9_]*)>*$"#, options: .regularExpression) {
-            let matched = String(keyPathString[match])
-            return matched
+            return String(keyPathString[match])
                 .replacingOccurrences(of: ".", with: "")
                 .replacingOccurrences(of: "$", with: "")
                 .replacingOccurrences(of: ">", with: "")
@@ -397,6 +375,7 @@ public struct Query<T: Schema>: Sendable {
 
 public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
     private let baseQuery: Query<T>
+    // Stored as unquoted snake_case; quoted at SQL-build time
     private let selectedFields: [String]
 
     internal init(baseQuery: Query<T>, selectedFields: [String]) {
@@ -449,8 +428,8 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
     }
 
     private func buildTupleSQL() -> String {
-        let table = T.tableName
-        let selectClause = selectedFields.joined(separator: ", ")
+        let table = T.tableName.quoted
+        let selectClause = selectedFields.map { $0.quoted }.joined(separator: ", ")
         let joinClause = baseQuery.buildJoinClause()
         let orderClause = baseQuery.buildOrderClause()
         let limitClause = baseQuery.buildLimitClause()
@@ -469,12 +448,8 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
         var result = ""
         var counter = 0
         for char in sql {
-            if char == "?" {
-                counter += 1
-                result += "$\(counter)"
-            } else {
-                result.append(char)
-            }
+            if char == "?" { counter += 1; result += "$\(counter)" }
+            else { result.append(char) }
         }
         return result
     }
@@ -485,19 +460,18 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
         }
         if selectedFields.count == 1 {
             let randomAccess = row.makeRandomAccess()
-            let fieldValue = randomAccess[data: selectedFields[0]]
-            return try extractSingleValue(from: fieldValue) as! Result
+            return try extractSingleValue(from: randomAccess[data: selectedFields[0]]) as! Result
         }
         throw SpectroError.notImplemented("Result type \(Result.self) must conform to TupleBuildable for multi-field selection")
     }
 
     private func extractSingleValue(from postgresData: PostgresData) throws -> Any {
-        if let string = postgresData.string { return string }
-        if let int = postgresData.int { return int }
-        if let bool = postgresData.bool { return bool }
-        if let uuid = postgresData.uuid { return uuid }
-        if let date = postgresData.date { return date }
-        if let double = postgresData.double { return double }
+        if let v = postgresData.string { return v }
+        if let v = postgresData.int { return v }
+        if let v = postgresData.bool { return v }
+        if let v = postgresData.uuid { return v }
+        if let v = postgresData.date { return v }
+        if let v = postgresData.double { return v }
         throw SpectroError.resultDecodingFailed(column: "unknown", expectedType: "Any")
     }
 }
@@ -531,8 +505,8 @@ public struct QueryField<V>: Sendable {
 // MARK: - QueryCondition
 //
 // SQL uses `?` as a positional sentinel — never $N.
-// Placeholders are numbered once at query assembly time by
-// Query.renumberPlaceholders(in:), not during condition composition.
+// Column names are quoted at the point of operator use below.
+// Placeholders are numbered once at query assembly time.
 
 public struct QueryCondition: Sendable {
     let sql: String
@@ -548,71 +522,71 @@ public struct QueryCondition: Sendable {
 
 extension QueryField where V: Equatable {
     public static func == (lhs: QueryField<V>, rhs: V) -> QueryCondition {
-        QueryCondition(sql: "\(lhs.name.snakeCase()) = ?", parameters: [convertToPostgresData(rhs)])
+        QueryCondition(sql: "\(lhs.name.snakeCase().quoted) = ?", parameters: [convertToPostgresData(rhs)])
     }
 
     public static func != (lhs: QueryField<V>, rhs: V) -> QueryCondition {
-        QueryCondition(sql: "\(lhs.name.snakeCase()) != ?", parameters: [convertToPostgresData(rhs)])
+        QueryCondition(sql: "\(lhs.name.snakeCase().quoted) != ?", parameters: [convertToPostgresData(rhs)])
     }
 }
 
 extension QueryField where V: Comparable {
     public static func > (lhs: QueryField<V>, rhs: V) -> QueryCondition {
-        QueryCondition(sql: "\(lhs.name.snakeCase()) > ?", parameters: [convertToPostgresData(rhs)])
+        QueryCondition(sql: "\(lhs.name.snakeCase().quoted) > ?", parameters: [convertToPostgresData(rhs)])
     }
 
     public static func >= (lhs: QueryField<V>, rhs: V) -> QueryCondition {
-        QueryCondition(sql: "\(lhs.name.snakeCase()) >= ?", parameters: [convertToPostgresData(rhs)])
+        QueryCondition(sql: "\(lhs.name.snakeCase().quoted) >= ?", parameters: [convertToPostgresData(rhs)])
     }
 
     public static func < (lhs: QueryField<V>, rhs: V) -> QueryCondition {
-        QueryCondition(sql: "\(lhs.name.snakeCase()) < ?", parameters: [convertToPostgresData(rhs)])
+        QueryCondition(sql: "\(lhs.name.snakeCase().quoted) < ?", parameters: [convertToPostgresData(rhs)])
     }
 
     public static func <= (lhs: QueryField<V>, rhs: V) -> QueryCondition {
-        QueryCondition(sql: "\(lhs.name.snakeCase()) <= ?", parameters: [convertToPostgresData(rhs)])
+        QueryCondition(sql: "\(lhs.name.snakeCase().quoted) <= ?", parameters: [convertToPostgresData(rhs)])
     }
 }
 
 extension QueryField where V == String {
     public func like(_ pattern: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) LIKE ?", parameters: [PostgresData(string: pattern)])
+        QueryCondition(sql: "\(name.snakeCase().quoted) LIKE ?", parameters: [PostgresData(string: pattern)])
     }
 
     public func ilike(_ pattern: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) ILIKE ?", parameters: [PostgresData(string: pattern)])
+        QueryCondition(sql: "\(name.snakeCase().quoted) ILIKE ?", parameters: [PostgresData(string: pattern)])
     }
 
     public func notLike(_ pattern: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) NOT LIKE ?", parameters: [PostgresData(string: pattern)])
+        QueryCondition(sql: "\(name.snakeCase().quoted) NOT LIKE ?", parameters: [PostgresData(string: pattern)])
     }
 
     public func notIlike(_ pattern: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) NOT ILIKE ?", parameters: [PostgresData(string: pattern)])
+        QueryCondition(sql: "\(name.snakeCase().quoted) NOT ILIKE ?", parameters: [PostgresData(string: pattern)])
     }
 
     public func startsWith(_ prefix: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) LIKE ?", parameters: [PostgresData(string: "\(prefix)%")])
+        QueryCondition(sql: "\(name.snakeCase().quoted) LIKE ?", parameters: [PostgresData(string: "\(prefix)%")])
     }
 
     public func endsWith(_ suffix: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) LIKE ?", parameters: [PostgresData(string: "%\(suffix)")])
+        QueryCondition(sql: "\(name.snakeCase().quoted) LIKE ?", parameters: [PostgresData(string: "%\(suffix)")])
     }
 
     public func contains(_ substring: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) LIKE ?", parameters: [PostgresData(string: "%\(substring)%")])
+        QueryCondition(sql: "\(name.snakeCase().quoted) LIKE ?", parameters: [PostgresData(string: "%\(substring)%")])
     }
 
     public func iStartsWith(_ prefix: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) ILIKE ?", parameters: [PostgresData(string: "\(prefix)%")])
+        QueryCondition(sql: "\(name.snakeCase().quoted) ILIKE ?", parameters: [PostgresData(string: "\(prefix)%")])
     }
 
     public func iEndsWith(_ suffix: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) ILIKE ?", parameters: [PostgresData(string: "%\(suffix)")])
+        QueryCondition(sql: "\(name.snakeCase().quoted) ILIKE ?", parameters: [PostgresData(string: "%\(suffix)")])
     }
 
     public func iContains(_ substring: String) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) ILIKE ?", parameters: [PostgresData(string: "%\(substring)%")])
+        QueryCondition(sql: "\(name.snakeCase().quoted) ILIKE ?", parameters: [PostgresData(string: "%\(substring)%")])
     }
 }
 
@@ -621,7 +595,7 @@ extension QueryField where V: Equatable {
         let valueArray = Array(values)
         let placeholders = Array(repeating: "?", count: valueArray.count).joined(separator: ", ")
         return QueryCondition(
-            sql: "\(name.snakeCase()) IN (\(placeholders))",
+            sql: "\(name.snakeCase().quoted) IN (\(placeholders))",
             parameters: valueArray.map { convertToPostgresData($0) }
         )
     }
@@ -630,7 +604,7 @@ extension QueryField where V: Equatable {
         let valueArray = Array(values)
         let placeholders = Array(repeating: "?", count: valueArray.count).joined(separator: ", ")
         return QueryCondition(
-            sql: "\(name.snakeCase()) NOT IN (\(placeholders))",
+            sql: "\(name.snakeCase().quoted) NOT IN (\(placeholders))",
             parameters: valueArray.map { convertToPostgresData($0) }
         )
     }
@@ -639,7 +613,7 @@ extension QueryField where V: Equatable {
 extension QueryField where V: Comparable {
     public func between(_ lower: V, and upper: V) -> QueryCondition {
         QueryCondition(
-            sql: "\(name.snakeCase()) BETWEEN ? AND ?",
+            sql: "\(name.snakeCase().quoted) BETWEEN ? AND ?",
             parameters: [convertToPostgresData(lower), convertToPostgresData(upper)]
         )
     }
@@ -647,52 +621,49 @@ extension QueryField where V: Comparable {
 
 extension QueryField where V == Date {
     public func before(_ date: Date) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) < ?", parameters: [PostgresData(date: date)])
+        QueryCondition(sql: "\(name.snakeCase().quoted) < ?", parameters: [PostgresData(date: date)])
     }
 
     public func after(_ date: Date) -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) > ?", parameters: [PostgresData(date: date)])
+        QueryCondition(sql: "\(name.snakeCase().quoted) > ?", parameters: [PostgresData(date: date)])
     }
 
     public func isToday() -> QueryCondition {
-        QueryCondition(sql: "DATE(\(name.snakeCase())) = CURRENT_DATE")
+        QueryCondition(sql: "DATE(\(name.snakeCase().quoted)) = CURRENT_DATE")
     }
 
     public func isThisWeek() -> QueryCondition {
-        QueryCondition(sql: "DATE_TRUNC('week', \(name.snakeCase())) = DATE_TRUNC('week', CURRENT_DATE)")
+        QueryCondition(sql: "DATE_TRUNC('week', \(name.snakeCase().quoted)) = DATE_TRUNC('week', CURRENT_DATE)")
     }
 
     public func isThisMonth() -> QueryCondition {
-        QueryCondition(sql: "DATE_TRUNC('month', \(name.snakeCase())) = DATE_TRUNC('month', CURRENT_DATE)")
+        QueryCondition(sql: "DATE_TRUNC('month', \(name.snakeCase().quoted)) = DATE_TRUNC('month', CURRENT_DATE)")
     }
 
     public func isThisYear() -> QueryCondition {
-        QueryCondition(sql: "DATE_TRUNC('year', \(name.snakeCase())) = DATE_TRUNC('year', CURRENT_DATE)")
+        QueryCondition(sql: "DATE_TRUNC('year', \(name.snakeCase().quoted)) = DATE_TRUNC('year', CURRENT_DATE)")
     }
 }
 
 extension QueryField {
     public func isNull() -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) IS NULL")
+        QueryCondition(sql: "\(name.snakeCase().quoted) IS NULL")
     }
 
     public func isNotNull() -> QueryCondition {
-        QueryCondition(sql: "\(name.snakeCase()) IS NOT NULL")
+        QueryCondition(sql: "\(name.snakeCase().quoted) IS NOT NULL")
     }
 }
 
 extension QueryField where V: Numeric {
-    public func count() -> String { "COUNT(\(name.snakeCase()))" }
-    public func sum() -> String { "SUM(\(name.snakeCase()))" }
-    public func avg() -> String { "AVG(\(name.snakeCase()))" }
-    public func min() -> String { "MIN(\(name.snakeCase()))" }
-    public func max() -> String { "MAX(\(name.snakeCase()))" }
+    public func count() -> String { "COUNT(\(name.snakeCase().quoted))" }
+    public func sum() -> String { "SUM(\(name.snakeCase().quoted))" }
+    public func avg() -> String { "AVG(\(name.snakeCase().quoted))" }
+    public func min() -> String { "MIN(\(name.snakeCase().quoted))" }
+    public func max() -> String { "MAX(\(name.snakeCase().quoted))" }
 }
 
 // MARK: - Logical Operators
-//
-// Conditions use `?` sentinels, so composition is plain string concatenation —
-// no renumbering needed here.
 
 public func && (lhs: QueryCondition, rhs: QueryCondition) -> QueryCondition {
     QueryCondition(
@@ -716,13 +687,13 @@ public prefix func ! (condition: QueryCondition) -> QueryCondition {
 
 private func convertToPostgresData(_ value: Any) -> PostgresData {
     switch value {
-    case let string as String: return PostgresData(string: string)
-    case let int as Int: return PostgresData(int: int)
-    case let bool as Bool: return PostgresData(bool: bool)
-    case let uuid as UUID: return PostgresData(uuid: uuid)
-    case let date as Date: return PostgresData(date: date)
-    case let double as Double: return PostgresData(double: double)
-    case let float as Float: return PostgresData(float: float)
+    case let v as String: return PostgresData(string: v)
+    case let v as Int: return PostgresData(int: v)
+    case let v as Bool: return PostgresData(bool: v)
+    case let v as UUID: return PostgresData(uuid: v)
+    case let v as Date: return PostgresData(date: v)
+    case let v as Double: return PostgresData(double: v)
+    case let v as Float: return PostgresData(float: v)
     default: return PostgresData(string: "\(value)")
     }
 }
@@ -798,7 +769,10 @@ public struct JoinField<V>: Sendable {
         self.fieldName = fieldName
     }
 
-    var qualifiedName: String { "\(tableName).\(fieldName.snakeCase())" }
+    /// Fully-qualified, quoted identifier: `"table"."column"`
+    var qualifiedName: String {
+        "\(tableName.quoted).\(fieldName.snakeCase().quoted)"
+    }
 }
 
 // MARK: - JoinField Operators
