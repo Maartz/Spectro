@@ -217,13 +217,30 @@ public struct Query<T: Schema>: Sendable {
     }
 
     // MARK: - Relationship Preloading
+    //
+    // Keys paths must be WritableKeyPath so PreloadQuery can inject loaded data
+    // back into the struct via entity[keyPath: \.$posts] = loadedRelation.
+    // The foreignKey parameter names the column on the *related* table that
+    // holds the parent ID (HasMany / HasOne), or the column on *this* table
+    // that holds the related ID (BelongsTo). When omitted, the convention
+    // "<ParentTypeName>Id" is used (e.g. User → "userId").
 
-    public func preload<Related>(_ relationshipKeyPath: KeyPath<T, SpectroLazyRelation<[Related]>>) -> PreloadQuery<T> {
-        PreloadQuery(baseQuery: self, preloadedRelationships: [extractRelationshipName(from: relationshipKeyPath)])
+    public func preload<Related: Schema>(
+        _ keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
+        foreignKey: String? = nil
+    ) -> PreloadQuery<T> {
+        PreloadQuery(baseQuery: self, preloaders: [
+            PreloadQuery<T>.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)
+        ])
     }
 
-    public func preload<Related>(_ relationshipKeyPath: KeyPath<T, SpectroLazyRelation<Related?>>) -> PreloadQuery<T> {
-        PreloadQuery(baseQuery: self, preloadedRelationships: [extractRelationshipName(from: relationshipKeyPath)])
+    public func preload<Related: Schema>(
+        _ keyPath: WritableKeyPath<T, SpectroLazyRelation<Related?>>,
+        foreignKey: String? = nil
+    ) -> PreloadQuery<T> {
+        PreloadQuery(baseQuery: self, preloaders: [
+            PreloadQuery<T>.singlePreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)
+        ])
     }
 
     // MARK: - Execution

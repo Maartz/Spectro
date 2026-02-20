@@ -21,7 +21,8 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
     }
 
     private let loadState: LoadState
-    private let relationshipInfo: RelationshipInfo
+    // internal so PreloadQuery can read the kind/foreignKey when injecting loaded data
+    internal let relationshipInfo: RelationshipInfo
 
     // MARK: - Init
 
