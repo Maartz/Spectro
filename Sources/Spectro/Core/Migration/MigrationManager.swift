@@ -70,10 +70,11 @@ public final class MigrationManager: @unchecked Sendable {
         let files = try FileManager.default.contentsOfDirectory(
             at: migrationsPath, includingPropertiesForKeys: nil
         )
-        return files.filter { $0.pathExtension == "swift" }
+        // Migration files are plain SQL: YYYYMMDDHHMMSS_name.sql
+        return files.filter { $0.pathExtension == "sql" }
             .compactMap { url -> MigrationFile? in
-                let name = url.lastPathComponent
-                let parts = name.dropLast(6).split(separator: "_", maxSplits: 1)
+                let name = url.deletingPathExtension().lastPathComponent
+                let parts = name.split(separator: "_", maxSplits: 1)
                 guard parts.count == 2,
                       let ts = Double(parts[0]), ts > 0,
                       ts < Date().timeIntervalSince1970 + 100 * 365 * 24 * 60 * 60
@@ -208,20 +209,36 @@ public final class MigrationManager: @unchecked Sendable {
         ])
     }
 
+    /// Parse `-- migrate:up` and `-- migrate:down` sections from a `.sql` migration file.
+    ///
+    /// File format:
+    /// ```sql
+    /// -- migrate:up
+    /// CREATE TABLE "users" (...);
+    ///
+    /// -- migrate:down
+    /// DROP TABLE "users";
+    /// ```
     private func loadMigrationContent(from file: MigrationFile) throws -> (up: String, down: String) {
         let text = try String(contentsOf: file.filePath, encoding: .utf8)
-        guard let upStart = text.range(of: "func up() -> String {")?.upperBound,
-              let upEnd = text.range(of: "}", range: upStart..<text.endIndex)?.lowerBound,
-              let downStart = text.range(of: "func down() -> String {")?.upperBound,
-              let downEnd = text.range(of: "}", range: downStart..<text.endIndex)?.lowerBound
-        else { throw MigrationError.invalidMigrationFile(file.version) }
 
-        let upSQL = String(text[upStart..<upEnd])
-            .replacingOccurrences(of: "\"\"\"", with: "")
+        guard let upMarkerRange = text.range(of: "-- migrate:up") else {
+            throw MigrationError.invalidMigrationFile(file.version)
+        }
+        guard let downMarkerRange = text.range(of: "-- migrate:down") else {
+            throw MigrationError.invalidMigrationFile(file.version)
+        }
+
+        // up section: content between the two markers
+        let upSQL = text[upMarkerRange.upperBound..<downMarkerRange.lowerBound]
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let downSQL = String(text[downStart..<downEnd])
-            .replacingOccurrences(of: "\"\"\"", with: "")
+
+        // down section: everything after the down marker
+        let downSQL = text[downMarkerRange.upperBound...]
             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !upSQL.isEmpty else { throw MigrationError.invalidMigrationFile(file.version) }
+
         return (up: upSQL, down: downSQL)
     }
 
