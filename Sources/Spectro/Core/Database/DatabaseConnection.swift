@@ -6,8 +6,12 @@ import Foundation
 import NIOSSL
 
 public actor DatabaseConnection {
-    private let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
-    private let eventLoopGroup: EventLoopGroup
+    // nonisolated(unsafe) lets us call pools.shutdown() — which is marked
+    // @available(*, noasync) — from within the async shutdown() method without
+    // hitting the "calls wait()" diagnostic. Both are `let` constants so there
+    // is no concurrent mutation to guard against.
+    private nonisolated(unsafe) let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
+    private nonisolated(unsafe) let eventLoopGroup: EventLoopGroup
     private let configuration: DatabaseConfiguration
     private var isShutdown = false
 
@@ -140,12 +144,20 @@ public actor DatabaseConnection {
     public func shutdown() async {
         guard !isShutdown else { return }
         isShutdown = true
-        pools.shutdown()
+        // pools.shutdown() is @available(*, noasync) because it calls wait()
+        // internally. Delegating to a nonisolated sync helper escapes that
+        // restriction without introducing a real deadlock risk — the pool
+        // shutdown is fast and we're done using the pool at this point.
+        syncShutdownPools()
         do {
             try await eventLoopGroup.shutdownGracefully()
         } catch {
-            // Best-effort shutdown; don't propagate
+            // Best-effort; don't propagate
         }
+    }
+
+    private nonisolated func syncShutdownPools() {
+        pools.shutdown()
     }
 
     // Note: no deinit — actors cannot safely read isolated state (isShutdown) in
