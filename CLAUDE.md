@@ -12,7 +12,29 @@ Spectro is a Swift ORM for PostgreSQL, inspired by Elixir's Ecto. It provides:
 
 Swift 6.1 is required (managed via `mise.toml`).
 
-## Commands
+## Installing the CLI
+
+The `spectro` CLI is distributed via [Mint](https://github.com/yonaskolb/Mint):
+
+```bash
+# Install globally
+mint install Maartz/Spectro
+
+# Run
+spectro migrate generate CreateUsers
+spectro migrate up
+spectro migrate down
+spectro migrate status
+spectro database create --database myapp_dev
+spectro database drop   --database myapp_dev
+```
+
+To pin the version in a project, add to `Mintfile`:
+```
+Maartz/Spectro@<tag>
+```
+
+## Commands (development)
 
 ```bash
 # Build
@@ -25,13 +47,11 @@ swift build --product spectro       # CLI only
 swift test
 swift test --filter CoreFunctionalTests   # run specific suite
 
-# CLI
+# CLI (from source, before installing via Mint)
 ./.build/debug/spectro migrate generate <MigrationName>
 ./.build/debug/spectro migrate up
 ./.build/debug/spectro migrate down
 ./.build/debug/spectro migrate status
-./.build/debug/spectro database create --database myapp_dev
-./.build/debug/spectro database drop   --database myapp_dev
 ```
 
 Integration tests require these env vars:
@@ -67,9 +87,17 @@ DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, TEST_DB_NAME
 - `QueryField<V>` supports operators: `==`, `!=`, `>`, `<`, `.contains()`, `.ilike()`, `.in()`, `.between()`, `.isNull()`
 
 ### Migration System
-- Migrations are **Swift files** (not SQL files), placed in `Sources/Migrations/`, named `YYYYMMDDHHMMSS_<name>.swift`
-- Each file exposes `func up() -> String` and `func down() -> String` returning raw SQL
-- `MigrationManager` (`Sources/Spectro/Core/Migration/MigrationManager.swift`) discovers and runs them; `SQLStatementParser` extracts SQL from Swift source at runtime
+- Migrations are **plain SQL files**, placed in `Sources/Migrations/`, named `YYYYMMDDHHMMSS_<name>.sql`
+- Each file uses `-- migrate:up` / `-- migrate:down` section markers:
+  ```sql
+  -- migrate:up
+  CREATE TABLE "users" (...);
+
+  -- migrate:down
+  DROP TABLE "users";
+  ```
+- `MigrationManager` (`Sources/Spectro/Core/Migration/MigrationManager.swift`) discovers, parses, and runs them
+- `SQLStatementParser` splits SQL at semicolons, handling dollar-quotes, inline `--` comments, and `/* */` block comments
 - Migration status tracked in `schema_migrations` table (uses a `migration_status` Postgres enum)
 
 ### Public Facade
