@@ -1,6 +1,7 @@
 // swift-tools-version: 6.0
 
 import PackageDescription
+import CompilerPluginSupport
 
 let package = Package(
     name: "Spectro",
@@ -18,6 +19,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.2.0"),
         .package(url: "https://github.com/vapor/async-kit.git", from: "1.15.0"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.34.0"),
+        .package(url: "https://github.com/apple/swift-syntax.git", from: "600.0.0"),
     ],
     targets: [
         .target(
@@ -25,10 +27,20 @@ let package = Package(
             dependencies: [],
             swiftSettings: [.swiftLanguageVersion(.v6)]
         ),
+        .macro(
+            name: "SpectroMacros",
+            dependencies: [
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+            ],
+            path: "Sources/SpectroMacros",
+            swiftSettings: [.swiftLanguageVersion(.v6)]
+        ),
         .target(
             name: "Spectro",
             dependencies: [
                 "SpectroCore",
+                "SpectroMacros",
                 .product(name: "PostgresKit", package: "postgres-kit"),
                 .product(name: "SQLKit", package: "sql-kit"),
                 .product(name: "AsyncKit", package: "async-kit"),
