@@ -1,5 +1,6 @@
 import Foundation
 import PostgresNIO
+import SpectroCore
 
 /// Query that includes joined tables and returns combined results
 public struct JoinQuery<T: Schema, U: Schema>: Sendable {

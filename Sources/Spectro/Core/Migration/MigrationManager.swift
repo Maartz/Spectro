@@ -58,7 +58,7 @@ public final class MigrationManager: @unchecked Sendable {
                 version: version,
                 name: name,
                 appliedAt: appliedAt,
-                status: MigrationStatus(rawValue: statusString)
+                status: MigrationStatus(rawValue: statusString) ?? .pending
             )
         }
     }
