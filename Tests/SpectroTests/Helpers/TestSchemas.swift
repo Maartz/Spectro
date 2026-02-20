@@ -75,6 +75,19 @@ struct TestUserWithBio: Schema, SchemaBuilder {
     }
 }
 
+// MARK: - Macro-generated Schema (no manual boilerplate)
+
+@Schema("test_macro_users")
+struct TestMacroUser {
+    @ID var id: UUID
+    @Column var name: String
+    @Column var email: String
+    @Column var bio: String?
+    @Timestamp var createdAt: Date
+}
+
+// MARK: - Manual Schema Definitions (continued)
+
 struct TestPost: Schema, SchemaBuilder {
     static let tableName = "test_posts"
 

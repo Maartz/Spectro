@@ -232,6 +232,53 @@ struct QueryExecutionTests {
         }
     }
 
+    // MARK: - @Schema macro integration tests
+
+    private func withMacroUserTable(_ body: (GenericDatabaseRepo) async throws -> Void) async throws {
+        let spectro = try TestDatabase.makeSpectro()
+        let repo = spectro.repository()
+        try await repo.executeRawSQL("""
+            CREATE TABLE IF NOT EXISTS "test_macro_users" (
+                "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                "name" TEXT NOT NULL DEFAULT '',
+                "email" TEXT NOT NULL DEFAULT '',
+                "bio" TEXT,
+                "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+        try await repo.executeRawSQL("TRUNCATE \"test_macro_users\"")
+        do {
+            try await body(repo)
+        } catch {
+            await spectro.shutdown()
+            throw error
+        }
+        await spectro.shutdown()
+    }
+
+    @Test("Macro-generated schema INSERT and SELECT round-trip")
+    func macroInsertSelect() async throws {
+        try await withMacroUserTable { repo in
+            let _ = try await repo.insert(TestMacroUser(name: "Alice", email: "alice@test.com", bio: "Hello"))
+            let users = try await repo.query(TestMacroUser.self).all()
+            #expect(users.count == 1)
+            #expect(users.first?.name == "Alice")
+            #expect(users.first?.email == "alice@test.com")
+            #expect(users.first?.bio == "Hello")
+        }
+    }
+
+    @Test("Macro-generated schema handles nil optional column")
+    func macroNilColumn() async throws {
+        try await withMacroUserTable { repo in
+            let _ = try await repo.insert(TestMacroUser(name: "Bob", email: "bob@test.com"))
+            let users = try await repo.query(TestMacroUser.self).all()
+            #expect(users.count == 1)
+            #expect(users.first?.name == "Bob")
+            #expect(users.first?.bio == nil)
+        }
+    }
+
     @Test("Chaining where, orderBy, limit together")
     func fullChain() async throws {
         try await withSeededTable { repo in
