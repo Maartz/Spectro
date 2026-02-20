@@ -85,7 +85,7 @@ public actor GenericDatabaseRepo: Repo {
         return try await mapRowToSchema(row, schema: T.self)
     }
 
-    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: Any]) async throws -> T {
+    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: any Sendable]) async throws -> T {
         let metadata = await SchemaRegistry.shared.register(schema)
 
         guard let primaryKey = metadata.primaryKeyField else {
