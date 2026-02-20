@@ -85,6 +85,17 @@ struct SchemaTests {
         #expect(fieldMap["userId"]?.fieldType == .uuid)
     }
 
+    @Test("SchemaRegistry detects optional columns as nullable")
+    func optionalColumnsNullable() async {
+        let metadata = await SchemaRegistry.shared.register(TestUserWithBio.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        #expect(fieldMap["bio"] != nil, "bio field must be registered")
+        #expect(fieldMap["bio"]?.fieldType == .string)
+        #expect(fieldMap["bio"]?.isNullable == true)
+        #expect(fieldMap["name"]?.isNullable == false)
+    }
+
     @Test("SchemaRegistry snake_cases database column names")
     func databaseNames() async {
         let metadata = await SchemaRegistry.shared.register(TestUser.self)

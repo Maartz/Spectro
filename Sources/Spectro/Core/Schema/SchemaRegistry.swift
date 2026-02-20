@@ -101,26 +101,48 @@ public actor SchemaRegistry {
         case is Column<String>:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .string,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case is Column<String?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .string,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Column<Int>:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .int,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case is Column<Int?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .int,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Column<Bool>:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .bool,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case is Column<Bool?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .bool,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Column<Double>:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .double,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case is Column<Double?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .double,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Column<Float>:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .float,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case is Column<Float?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .float,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Column<Date>:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .date,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case is Column<Date?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .date,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
+
+        case is Column<UUID?>:
+            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .uuid,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Timestamp:
             return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .date,
@@ -131,9 +153,6 @@ public actor SchemaRegistry {
                              isPrimaryKey: false, isForeignKey: true, isTimestamp: false, isNullable: false)
 
         default:
-            // Optional columns are not yet supported; skip them.
-            // TODO: add FieldType cases for Optional<T> when Mirror reflection
-            // can reliably extract the inner type in Swift 6.
             return nil
         }
     }

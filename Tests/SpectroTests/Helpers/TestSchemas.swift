@@ -43,6 +43,38 @@ struct TestUser: Schema, SchemaBuilder {
     }
 }
 
+struct TestUserWithBio: Schema, SchemaBuilder {
+    static let tableName = "test_users_bio"
+
+    @ID var id: UUID
+    @Column var name: String
+    @Column var email: String
+    @Column var bio: String?
+
+    init() {
+        self.id = UUID()
+        self.name = ""
+        self.email = ""
+        self.bio = nil
+    }
+
+    init(name: String, email: String, bio: String? = nil) {
+        self.id = UUID()
+        self.name = name
+        self.email = email
+        self.bio = bio
+    }
+
+    static func build(from values: [String: Any]) -> TestUserWithBio {
+        var user = TestUserWithBio()
+        if let v = values["id"] as? UUID { user.id = v }
+        if let v = values["name"] as? String { user.name = v }
+        if let v = values["email"] as? String { user.email = v }
+        user.bio = values["bio"] as? String
+        return user
+    }
+}
+
 struct TestPost: Schema, SchemaBuilder {
     static let tableName = "test_posts"
 

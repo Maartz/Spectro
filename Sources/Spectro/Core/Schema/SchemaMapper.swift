@@ -89,6 +89,12 @@ public struct SchemaMapper {
     }
 
     public static func convertToPostgresData(_ value: Any) throws -> PostgresData {
+        // Handle nil optionals explicitly — send SQL NULL instead of throwing.
+        let mirror = Mirror(reflecting: value)
+        if mirror.displayStyle == .optional && mirror.children.isEmpty {
+            return PostgresData(type: .null, value: nil)
+        }
+
         switch value {
         case let v as String:  return PostgresData(string: v)
         case let v as Int:     return PostgresData(int: v)

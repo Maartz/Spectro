@@ -187,6 +187,51 @@ struct QueryExecutionTests {
         }
     }
 
+    // MARK: - Nullable column tests
+
+    private func withBioTable(_ body: (GenericDatabaseRepo) async throws -> Void) async throws {
+        let spectro = try TestDatabase.makeSpectro()
+        let repo = spectro.repository()
+        try await repo.executeRawSQL("""
+            CREATE TABLE IF NOT EXISTS "test_users_bio" (
+                "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                "name" TEXT NOT NULL DEFAULT '',
+                "email" TEXT NOT NULL DEFAULT '',
+                "bio" TEXT
+            )
+        """)
+        try await repo.executeRawSQL("TRUNCATE \"test_users_bio\"")
+        do {
+            try await body(repo)
+        } catch {
+            await spectro.shutdown()
+            throw error
+        }
+        await spectro.shutdown()
+    }
+
+    @Test("INSERT with nil optional column, SELECT returns nil")
+    func nullableColumnNil() async throws {
+        try await withBioTable { repo in
+            let _ = try await repo.insert(TestUserWithBio(name: "Alice", email: "alice@test.com", bio: nil))
+            let users = try await repo.query(TestUserWithBio.self).all()
+            #expect(users.count == 1)
+            #expect(users.first?.name == "Alice")
+            #expect(users.first?.bio == nil)
+        }
+    }
+
+    @Test("INSERT with non-nil optional column, SELECT returns value")
+    func nullableColumnNonNil() async throws {
+        try await withBioTable { repo in
+            let _ = try await repo.insert(TestUserWithBio(name: "Bob", email: "bob@test.com", bio: "Hello world"))
+            let users = try await repo.query(TestUserWithBio.self).all()
+            #expect(users.count == 1)
+            #expect(users.first?.name == "Bob")
+            #expect(users.first?.bio == "Hello world")
+        }
+    }
+
     @Test("Chaining where, orderBy, limit together")
     func fullChain() async throws {
         try await withSeededTable { repo in
