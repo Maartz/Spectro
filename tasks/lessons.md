@@ -21,6 +21,10 @@
 - `repo.get(Type.self, id:)` is simpler than a query for belongs-to lookups by PK
 - For struct mutating methods, verify no existing callers expect the non-mutating signature before changing
 
+## Macro-Generated Code
+- withLoader must reset loadState to .notLoaded, not preserve it. The @Schema macro init does `self.posts = []` which sets the relation to `.loaded([])`. If withLoader preserves that state, `load(using:)` short-circuits and returns the stale empty value, never calling the loader. Always reset to .notLoaded when attaching a new loader.
+- The @Schema macro generates loader injection in build(from:) for relationships: hasManyLoader for @HasMany, hasOneLoader for @HasOne, belongsToLoader for @BelongsTo. These are auto-attached when entities are built from database rows.
+
 ## SQL Generation
 - PostgreSQL SUM/MIN/MAX on INTEGER returns BIGINT, not DOUBLE — use CAST(... AS DOUBLE PRECISION) for aggregate results
 - Always use `.quoted` for identifier quoting — never manual `"\"\(name)\""` interpolation

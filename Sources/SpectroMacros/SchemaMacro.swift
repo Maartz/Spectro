@@ -23,6 +23,17 @@ private struct PropertyInfo {
 
 private let columnAttributeNames: Set<String> = ["ID", "Column", "Timestamp", "ForeignKey"]
 
+private func toSnakeCase(_ input: String) -> String {
+    var result = ""
+    for (i, char) in input.enumerated() {
+        if char.isUppercase && i > 0 {
+            result += "_"
+        }
+        result += char.lowercased()
+    }
+    return result
+}
+
 private func classifyWrapper(_ attrNames: [String]) -> WrapperKind? {
     if attrNames.contains("ID") { return .id }
     if attrNames.contains("Column") { return .column }
@@ -283,6 +294,37 @@ extension SchemaMacro: ExtensionMacro {
                 assignments.append(
                     "if let __v = values[\"\(propName)\"] as? \(baseType) { instance.\(propName) = __v }"
                 )
+            }
+        }
+
+        // Relationship loader injection
+        let allProps = collectProperties(from: structDecl)
+        let idProp = allProps.first(where: { $0.wrapper == .id })
+
+        if let idProp = idProp {
+            let parentFK = toSnakeCase(typeName) + "_id"
+
+            for prop in allProps {
+                switch prop.wrapper {
+                case .hasMany:
+                    let elementType = String(prop.typeName.dropFirst().dropLast())
+                    assignments.append(
+                        "if let __parentId = values[\"\(idProp.name)\"] as? UUID { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<[\(elementType)]>.hasManyLoader(parentId: __parentId, foreignKey: \"\(parentFK)\")) }"
+                    )
+                case .hasOne:
+                    assignments.append(
+                        "if let __parentId = values[\"\(idProp.name)\"] as? UUID { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<\(prop.typeName)?>.hasOneLoader(parentId: __parentId, foreignKey: \"\(parentFK)\")) }"
+                    )
+                case .belongsTo:
+                    let fkPropName = "\(prop.name)Id"
+                    if allProps.contains(where: { $0.wrapper == .foreignKey && $0.name == fkPropName }) {
+                        assignments.append(
+                            "if let __fk = values[\"\(fkPropName)\"] as? UUID { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<\(prop.typeName)?>.belongsToLoader(foreignKeyValue: __fk)) }"
+                        )
+                    }
+                default:
+                    break
+                }
             }
         }
 

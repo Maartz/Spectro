@@ -37,8 +37,12 @@
 - [x] Fixed FK quoting in loader factories (use .quoted)
 - [x] Added empty set guard in upsert
 
+### SchemaMacro Loader Injection
+- [x] @Schema macro auto-injects loader closures in build(from:) for @HasMany, @HasOne, @BelongsTo
+- [x] Fix withLoader to reset loadState to .notLoaded (prevents stale cached defaults from init)
+- [x] Integration tests for auto-injected loaders (4 tests in MacroLoaderInjectionTests)
+
 ## Future Work
-- [ ] SchemaMacro loader injection (auto-inject loaders in @Schema build(from:))
 - [ ] Test coverage for .constraint(...) conflict target
 - [ ] Type-safe aggregate API with QueryField overloads
 - [ ] Grouped aggregates (GROUP BY)

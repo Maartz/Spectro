@@ -96,9 +96,11 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
 
     /// Creates a copy of this relation with the given loader closure attached.
     ///
-    /// The loader captures the parent's ID and foreign key at call time so that
-    /// `load(using:)` can execute a database query without knowing the concrete
-    /// Schema types at runtime.
+    /// The load state is reset to `.notLoaded` so that calling `load(using:)`
+    /// will invoke the new loader instead of returning stale cached data.
+    /// This is essential when `build(from:)` injects loaders into relations
+    /// that were initialized with default values (e.g. `self.posts = []`
+    /// sets the state to `.loaded([])`).
     ///
     /// ```swift
     /// let relation = relation.withLoader(
@@ -110,7 +112,7 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
         _ loader: @escaping @Sendable (GenericDatabaseRepo) async throws -> T
     ) -> SpectroLazyRelation<T> {
         SpectroLazyRelation(
-            loadState: loadState,
+            loadState: .notLoaded,
             relationshipInfo: relationshipInfo,
             loader: loader
         )
