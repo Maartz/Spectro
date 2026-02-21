@@ -294,6 +294,54 @@ public struct Query<T: Schema>: Sendable {
         return results.first ?? 0
     }
 
+    public func sum(_ field: String) async throws -> Double? {
+        let sql = buildAggregateSQL(function: "SUM", column: field)
+        let results = try await connection.executeQuery(
+            sql: sql,
+            parameters: parameters,
+            resultMapper: { row in
+                row.makeRandomAccess()[data: "agg_result"].double
+            }
+        )
+        return results.first ?? nil
+    }
+
+    public func avg(_ field: String) async throws -> Double? {
+        let sql = buildAggregateSQL(function: "AVG", column: field)
+        let results = try await connection.executeQuery(
+            sql: sql,
+            parameters: parameters,
+            resultMapper: { row in
+                row.makeRandomAccess()[data: "agg_result"].double
+            }
+        )
+        return results.first ?? nil
+    }
+
+    public func min(_ field: String) async throws -> Double? {
+        let sql = buildAggregateSQL(function: "MIN", column: field)
+        let results = try await connection.executeQuery(
+            sql: sql,
+            parameters: parameters,
+            resultMapper: { row in
+                row.makeRandomAccess()[data: "agg_result"].double
+            }
+        )
+        return results.first ?? nil
+    }
+
+    public func max(_ field: String) async throws -> Double? {
+        let sql = buildAggregateSQL(function: "MAX", column: field)
+        let results = try await connection.executeQuery(
+            sql: sql,
+            parameters: parameters,
+            resultMapper: { row in
+                row.makeRandomAccess()[data: "agg_result"].double
+            }
+        )
+        return results.first ?? nil
+    }
+
     // MARK: - SQL Building
 
     internal func buildSQL() -> String {
@@ -318,6 +366,18 @@ public struct Query<T: Schema>: Sendable {
         let joinClause = buildJoinClause()
 
         var sql = "SELECT COUNT(*) as count FROM \(table)"
+
+        if !joinClause.isEmpty { sql += " \(joinClause)" }
+        if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
+
+        return renumberPlaceholders(in: sql)
+    }
+
+    private func buildAggregateSQL(function: String, column: String) -> String {
+        let table = T.tableName.quoted
+        let joinClause = buildJoinClause()
+
+        var sql = "SELECT CAST(\(function)(\(column.snakeCase().quoted)) AS DOUBLE PRECISION) as agg_result FROM \(table)"
 
         if !joinClause.isEmpty { sql += " \(joinClause)" }
         if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
@@ -831,12 +891,4 @@ extension JoinField where V: Comparable {
 private func extractFieldName<T: Schema, V>(from keyPath: KeyPath<T, V>, schema: T.Type) -> String {
     let keyPathString = "\(keyPath)"
     return keyPathString.components(separatedBy: ".").last ?? keyPathString
-}
-
-// MARK: - Repository Integration
-
-extension DatabaseRepo {
-    public func query<T: Schema>(_ schema: T.Type) -> Query<T> {
-        Query(schema: schema, connection: connection)
-    }
 }

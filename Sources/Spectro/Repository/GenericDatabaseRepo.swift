@@ -98,6 +98,120 @@ public actor GenericDatabaseRepo: Repo {
         return try await mapRowToSchema(row, schema: T.self)
     }
 
+    public func upsert<T: Schema>(_ instance: T, conflictTarget: ConflictTarget, set: [String]?) async throws -> T {
+        let metadata = await SchemaRegistry.shared.register(T.self)
+        let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: true)
+
+        let columns = data.keys.map { $0.quoted }.joined(separator: ", ")
+        let placeholders = (1...data.count).map { "$\($0)" }.joined(separator: ", ")
+        let values = Array(data.values)
+
+        // Build ON CONFLICT clause
+        let conflictClause: String
+        switch conflictTarget {
+        case .columns(let cols):
+            let quotedCols = cols.map { $0.snakeCase().quoted }.joined(separator: ", ")
+            conflictClause = "ON CONFLICT (\(quotedCols))"
+        case .constraint(let name):
+            conflictClause = "ON CONFLICT ON CONSTRAINT \(name.quoted)"
+        }
+
+        // Determine which columns to update on conflict
+        let updateColumns: [String]
+        if let set = set {
+            guard !set.isEmpty else {
+                throw SpectroError.invalidSchema(reason: "upsert 'set' parameter must not be an empty array; use nil to update all columns")
+            }
+            updateColumns = set.map { $0.snakeCase() }
+        } else {
+            // Update all non-primary-key columns
+            updateColumns = Array(data.keys)
+        }
+
+        let setClause = updateColumns.map { col in
+            "\(col.quoted) = EXCLUDED.\(col.quoted)"
+        }.joined(separator: ", ")
+
+        let sql = """
+            INSERT INTO \(metadata.tableName.quoted) (\(columns))
+            VALUES (\(placeholders))
+            \(conflictClause) DO UPDATE SET \(setClause)
+            RETURNING *
+            """
+
+        let rows = try await connection.executeQuery(
+            sql: sql,
+            parameters: values,
+            resultMapper: { $0 }
+        )
+
+        guard let row = rows.first else {
+            throw SpectroError.databaseError(reason: "Upsert did not return a row")
+        }
+
+        return try await mapRowToSchema(row, schema: T.self)
+    }
+
+    public func insertAll<T: Schema>(_ instances: [T]) async throws -> [T] {
+        guard !instances.isEmpty else { return [] }
+
+        let metadata = await SchemaRegistry.shared.register(T.self)
+
+        // Extract data from the first instance to determine column order
+        let firstData = SchemaMapper.extractData(from: instances[0], metadata: metadata, excludePrimaryKey: true)
+        let columnNames = Array(firstData.keys)
+        let columns = columnNames.map { $0.quoted }.joined(separator: ", ")
+        let columnsPerRow = columnNames.count
+
+        // Auto-batch at 1000 rows to stay under PostgreSQL's 65535 parameter limit
+        let batchSize = 1000
+        var allResults: [T] = []
+
+        for batchStart in stride(from: 0, to: instances.count, by: batchSize) {
+            let batchEnd = min(batchStart + batchSize, instances.count)
+            let batch = instances[batchStart..<batchEnd]
+
+            var values: [PostgresData] = []
+            var valueTuples: [String] = []
+            var paramIndex = 1
+
+            for instance in batch {
+                let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: true)
+                let placeholders = (paramIndex..<(paramIndex + columnsPerRow)).map { "$\($0)" }.joined(separator: ", ")
+                valueTuples.append("(\(placeholders))")
+
+                // Add values in the same column order as the first instance
+                for col in columnNames {
+                    if let value = data[col] {
+                        values.append(value)
+                    } else {
+                        values.append(PostgresData(type: .null, value: nil))
+                    }
+                }
+
+                paramIndex += columnsPerRow
+            }
+
+            let sql = """
+                INSERT INTO \(metadata.tableName.quoted) (\(columns))
+                VALUES \(valueTuples.joined(separator: ", "))
+                RETURNING *
+                """
+
+            let rows = try await connection.executeQuery(
+                sql: sql,
+                parameters: values,
+                resultMapper: { $0 }
+            )
+
+            for row in rows {
+                allResults.append(try await mapRowToSchema(row, schema: T.self))
+            }
+        }
+
+        return allResults
+    }
+
     public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: any Sendable]) async throws -> T {
         let metadata = await SchemaRegistry.shared.register(schema)
 

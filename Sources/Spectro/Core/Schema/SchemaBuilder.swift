@@ -1,5 +1,6 @@
 import Foundation
 @preconcurrency import PostgresNIO
+import SpectroCore
 
 /// Protocol for building schema instances from database rows.
 ///
@@ -30,11 +31,41 @@ extension SchemaBuilder {
 
 extension Schema {
     /// Synchronous row mapping for contexts where async is unavailable.
+    ///
+    /// Uses `Mirror` reflection on a default instance to discover field names,
+    /// extracts matching column values from the row, and delegates to
+    /// `SchemaBuilder.build(from:)` or `MutableSchema.apply(values:)`.
     public static func fromSync(row: PostgresRow) throws -> Self {
-        // Synchronous path: returns a default instance.
-        // For full field population, prefer the async from(row:) which
-        // consults SchemaRegistry metadata.
-        return Self()
+        let instance = Self()
+        let randomAccess = row.makeRandomAccess()
+        var values: [String: Any] = [:]
+
+        let mirror = Mirror(reflecting: instance)
+        for child in mirror.children {
+            guard let label = child.label else { continue }
+            let fieldName = label.hasPrefix("_") ? String(label.dropFirst()) : label
+            let dbColumn = fieldName.snakeCase()
+            let dbValue = randomAccess[data: dbColumn]
+
+            if let v = dbValue.uuid        { values[fieldName] = v }
+            else if let v = dbValue.string  { values[fieldName] = v }
+            else if let v = dbValue.int     { values[fieldName] = v }
+            else if let v = dbValue.bool    { values[fieldName] = v }
+            else if let v = dbValue.date    { values[fieldName] = v }
+            else if let v = dbValue.double  { values[fieldName] = v }
+            else if let v = dbValue.float   { values[fieldName] = v }
+        }
+
+        if let builderType = self as? any SchemaBuilder.Type {
+            return builderType.build(from: values) as! Self
+        }
+        if var mutable = Self() as? MutableSchema {
+            mutable.apply(values: values)
+            return mutable as! Self
+        }
+        throw SpectroError.invalidSchema(
+            reason: "Schema \(Self.self) must conform to SchemaBuilder (use @Schema macro) or MutableSchema"
+        )
     }
 
     /// Map a PostgreSQL row to a schema instance.

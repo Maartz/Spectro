@@ -3,8 +3,24 @@ import Foundation
 
 /// Core lazy relation type for relationship loading.
 ///
-/// All state changes happen through value-copying (`withLoaded(_:)`), making
-/// this type safe to pass across actor boundaries.
+/// All state changes happen through value-copying (`withLoaded(_:)`, `withLoader(_:)`),
+/// making this type safe to pass across actor boundaries.
+///
+/// ## Loading Strategies
+///
+/// There are two ways to load a relationship:
+///
+/// 1. **Loader closure** (preferred): Attach a type-erased loader via `withLoader(_:)`.
+///    The loader captures the parent ID and foreign key at injection time, so
+///    `load(using:)` can execute the query without knowing the concrete Schema type.
+///    Use the static factory methods (`hasManyLoader`, `hasOneLoader`, `belongsToLoader`)
+///    to create loaders.
+///
+/// 2. **Typed `load(from:...)` methods**: Pass the parent entity and child type
+///    explicitly. These are defined in extensions below and delegate to
+///    `RelationshipLoader`.
+///
+/// For batch loading (N+1 prevention), use `Query<T>.preload(\.$relationship)`.
 public struct SpectroLazyRelation<T: Sendable>: Sendable {
 
     /// Loading state for a lazy relationship.
@@ -20,20 +36,24 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
         case error(any Error & Sendable)
     }
 
-    private let loadState: LoadState
+    private var loadState: LoadState
     // internal so PreloadQuery can read the kind/foreignKey when injecting loaded data
     internal let relationshipInfo: RelationshipInfo
+    /// Type-erased loader closure, captured at injection time when concrete types are known.
+    private let loader: (@Sendable (GenericDatabaseRepo) async throws -> T)?
 
     // MARK: - Init
 
     public init(relationshipInfo: RelationshipInfo) {
         self.loadState = .notLoaded
         self.relationshipInfo = relationshipInfo
+        self.loader = nil
     }
 
     public init(loaded data: T, relationshipInfo: RelationshipInfo) {
         self.loadState = .loaded(data)
         self.relationshipInfo = relationshipInfo
+        self.loader = nil
     }
 
     public init() {
@@ -44,6 +64,18 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
             kind: .hasMany,
             foreignKey: ""
         )
+        self.loader = nil
+    }
+
+    /// Internal initializer that preserves all fields including the loader.
+    private init(
+        loadState: LoadState,
+        relationshipInfo: RelationshipInfo,
+        loader: (@Sendable (GenericDatabaseRepo) async throws -> T)?
+    ) {
+        self.loadState = loadState
+        self.relationshipInfo = relationshipInfo
+        self.loader = loader
     }
 
     // MARK: - State Access
@@ -60,75 +92,131 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
 
     public var state: LoadState { loadState }
 
+    // MARK: - Loader Injection
+
+    /// Creates a copy of this relation with the given loader closure attached.
+    ///
+    /// The loader captures the parent's ID and foreign key at call time so that
+    /// `load(using:)` can execute a database query without knowing the concrete
+    /// Schema types at runtime.
+    ///
+    /// ```swift
+    /// let relation = relation.withLoader(
+    ///     SpectroLazyRelation.hasManyLoader(parentId: user.id, foreignKey: "user_id")
+    /// )
+    /// let posts = try await relation.load(using: repo)
+    /// ```
+    public func withLoader(
+        _ loader: @escaping @Sendable (GenericDatabaseRepo) async throws -> T
+    ) -> SpectroLazyRelation<T> {
+        SpectroLazyRelation(
+            loadState: loadState,
+            relationshipInfo: relationshipInfo,
+            loader: loader
+        )
+    }
+
     // MARK: - Loading
 
-    public func load(using repo: GenericDatabaseRepo) async throws -> T {
+    /// Load the relationship using the stored loader closure.
+    ///
+    /// If the relationship is already loaded, returns the cached value.
+    /// If no loader has been attached, throws `.notImplemented` with guidance
+    /// on alternative loading approaches.
+    public mutating func load(using repo: GenericDatabaseRepo) async throws -> T {
         if case .loaded(let data) = loadState { return data }
 
-        switch relationshipInfo.kind {
-        case .hasMany:    return try await loadHasMany(using: repo)
-        case .hasOne:     return try await loadHasOne(using: repo)
-        case .belongsTo:  return try await loadBelongsTo(using: repo)
-        case .manyToMany: return try await loadManyToMany(using: repo)
+        guard let loader = loader else {
+            throw SpectroError.notImplemented(
+                "SpectroLazyRelation.load(using:) has no loader for '\(relationshipInfo.relatedTypeName)'. "
+                + "Attach a loader via withLoader(_:) using the static factory methods "
+                + "(hasManyLoader, hasOneLoader, belongsToLoader), "
+                + "or use the typed API: entity.load(from:childType:using:). "
+                + "For batch loading, use Query<Parent>.preload(\\.$\(relationshipInfo.name))."
+            )
+        }
+
+        self.loadState = .loading
+        do {
+            let result = try await loader(repo)
+            self.loadState = .loaded(result)
+            return result
+        } catch {
+            self.loadState = .error(error)
+            throw error
         }
     }
 
     public func withLoaded(_ data: T) -> SpectroLazyRelation<T> {
-        SpectroLazyRelation(loaded: data, relationshipInfo: relationshipInfo)
-    }
-
-    // MARK: - Private Loading Methods
-    //
-    // These methods cannot be fully implemented because SpectroLazyRelation<T>
-    // erases the concrete Schema type into T (which is just Sendable). At
-    // runtime we only have `relationshipInfo.relatedTypeName` as a String,
-    // which is insufficient to construct a typed Query<Related>.
-    //
-    // Additionally, SpectroLazyRelation is a value type embedded in the
-    // parent struct — it has no reference back to its parent entity, so it
-    // cannot obtain the parent's primary key (needed for HasMany/HasOne) or
-    // the foreign key value (needed for BelongsTo).
-    //
-    // Working alternatives:
-    //   - Single-entity loading: use RelationshipLoader.loadHasMany/loadHasOne/loadBelongsTo
-    //     or the Schema extension methods (entity.loadHasMany(Child.self, ...))
-    //   - Batch loading (N+1 safe): use Query<T>.preload(\.$relationship)
-    //
-    // To make load(using:) work in the future, SpectroLazyRelation would need:
-    //   1. A stored type-erased loader closure: `@Sendable (GenericDatabaseRepo) async throws -> T`
-    //      captured at init time in the property wrapper when the concrete types are known.
-    //   2. The parent entity's ID or FK value injected when the struct is created/hydrated
-    //      from a database row (e.g., in SchemaMapper or build(from:)).
-
-    private func loadHasMany(using repo: GenericDatabaseRepo) async throws -> T {
-        throw SpectroError.notImplemented(
-            "SpectroLazyRelation.load(using:) cannot resolve the concrete Schema type for '\(relationshipInfo.relatedTypeName)' at runtime. "
-            + "Use the typed API instead: parent.loadHasMany(\(relationshipInfo.relatedTypeName).self, foreignKey: \"\(relationshipInfo.foreignKey ?? "<inferred>")\", using: repo) "
-            + "or batch-load via Query<Parent>.preload(\\.$\(relationshipInfo.name))."
+        SpectroLazyRelation(
+            loadState: .loaded(data),
+            relationshipInfo: relationshipInfo,
+            loader: loader
         )
     }
 
-    private func loadHasOne(using repo: GenericDatabaseRepo) async throws -> T {
-        throw SpectroError.notImplemented(
-            "SpectroLazyRelation.load(using:) cannot resolve the concrete Schema type for '\(relationshipInfo.relatedTypeName)' at runtime. "
-            + "Use the typed API instead: parent.loadHasOne(\(relationshipInfo.relatedTypeName).self, foreignKey: \"\(relationshipInfo.foreignKey ?? "<inferred>")\", using: repo) "
-            + "or batch-load via Query<Parent>.preload(\\.$\(relationshipInfo.name))."
-        )
+    // MARK: - Loader Factory Methods
+    //
+    // These static methods create type-erased loader closures that capture the
+    // parent's ID (or FK value) and the foreign key column name at creation
+    // time. The returned closure is @Sendable and uses the repo's query API
+    // to execute the actual database query.
+
+    /// Creates a loader for a has-many relationship.
+    ///
+    /// The loader executes: `SELECT * FROM <Child.tableName> WHERE <foreignKey> = <parentId>`
+    ///
+    /// - Parameters:
+    ///   - parentId: The parent entity's primary key value.
+    ///   - foreignKey: The column on the child table that references the parent (already snake_cased).
+    /// - Returns: A `@Sendable` closure suitable for `withLoader(_:)`.
+    public static func hasManyLoader<Child: Schema>(
+        parentId: UUID,
+        foreignKey: String
+    ) -> @Sendable (GenericDatabaseRepo) async throws -> [Child] where T == [Child] {
+        return { repo in
+            let condition = QueryCondition(
+                sql: "\(foreignKey.quoted) = ?",
+                parameters: [PostgresData(uuid: parentId)]
+            )
+            return try await repo.query(Child.self).where { _ in condition }.all()
+        }
     }
 
-    private func loadBelongsTo(using repo: GenericDatabaseRepo) async throws -> T {
-        throw SpectroError.notImplemented(
-            "SpectroLazyRelation.load(using:) cannot resolve the concrete Schema type for '\(relationshipInfo.relatedTypeName)' at runtime. "
-            + "Use the typed API instead: child.loadBelongsTo(\(relationshipInfo.relatedTypeName).self, foreignKey: \"\(relationshipInfo.foreignKey ?? "<inferred>")\", using: repo) "
-            + "or batch-load via Query<Parent>.preload(\\.$\(relationshipInfo.name))."
-        )
+    /// Creates a loader for a has-one relationship.
+    ///
+    /// The loader executes: `SELECT * FROM <Child.tableName> WHERE <foreignKey> = <parentId> LIMIT 1`
+    ///
+    /// - Parameters:
+    ///   - parentId: The parent entity's primary key value.
+    ///   - foreignKey: The column on the child table that references the parent (already snake_cased).
+    /// - Returns: A `@Sendable` closure suitable for `withLoader(_:)`.
+    public static func hasOneLoader<Child: Schema>(
+        parentId: UUID,
+        foreignKey: String
+    ) -> @Sendable (GenericDatabaseRepo) async throws -> Child? where T == Child? {
+        return { repo in
+            let condition = QueryCondition(
+                sql: "\(foreignKey.quoted) = ?",
+                parameters: [PostgresData(uuid: parentId)]
+            )
+            return try await repo.query(Child.self).where { _ in condition }.first()
+        }
     }
 
-    private func loadManyToMany(using repo: GenericDatabaseRepo) async throws -> T {
-        throw SpectroError.notImplemented(
-            "SpectroLazyRelation.load(using:) cannot resolve the concrete Schema type for '\(relationshipInfo.relatedTypeName)' at runtime. "
-            + "Use batch-load via Query<Parent>.preload(\\.$\(relationshipInfo.name)) for many-to-many relationships."
-        )
+    /// Creates a loader for a belongs-to relationship.
+    ///
+    /// The loader executes: `SELECT * FROM <Parent.tableName> WHERE id = <foreignKeyValue> LIMIT 1`
+    ///
+    /// - Parameters:
+    ///   - foreignKeyValue: The FK value stored on the child entity, pointing to the parent's PK.
+    /// - Returns: A `@Sendable` closure suitable for `withLoader(_:)`.
+    public static func belongsToLoader<Parent: Schema>(
+        foreignKeyValue: UUID
+    ) -> @Sendable (GenericDatabaseRepo) async throws -> Parent? where T == Parent? {
+        return { repo in
+            try await repo.get(Parent.self, id: foreignKeyValue)
+        }
     }
 }
 

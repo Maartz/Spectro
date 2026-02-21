@@ -68,6 +68,14 @@ extension Spectro {
         try await repository().insert(instance)
     }
 
+    public func upsert<T: Schema>(_ instance: T, conflictTarget: ConflictTarget, set: [String]? = nil) async throws -> T {
+        try await repository().upsert(instance, conflictTarget: conflictTarget, set: set)
+    }
+
+    public func insertAll<T: Schema>(_ instances: [T]) async throws -> [T] {
+        try await repository().insertAll(instances)
+    }
+
     public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: any Sendable]) async throws -> T {
         try await repository().update(schema, id: id, changes: changes)
     }
