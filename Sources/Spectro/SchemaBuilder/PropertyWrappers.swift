@@ -120,3 +120,54 @@ public struct BelongsTo<T: Schema>: Sendable {
         self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: relationshipInfo)
     }
 }
+
+@propertyWrapper
+public struct ManyToMany<T: Schema>: Sendable {
+    private var lazyRelation: SpectroLazyRelation<[T]>
+
+    /// The loaded array, or empty if the relationship has not been loaded.
+    public var wrappedValue: [T] {
+        get { lazyRelation.value ?? [] }
+        set { lazyRelation = lazyRelation.withLoaded(newValue) }
+    }
+
+    /// Access lazy-loading state and inject preloaded data.
+    public var projectedValue: SpectroLazyRelation<[T]> {
+        get { lazyRelation }
+        set { lazyRelation = newValue }
+    }
+
+    /// Create a many-to-many relationship.
+    ///
+    /// - Parameters:
+    ///   - junctionTable: The name of the junction/pivot table (e.g. "user_tags").
+    ///   - parentFK: The column in the junction table that references the parent's PK.
+    ///               If nil, derived by convention from the parent type at preload time.
+    ///   - relatedFK: The column in the junction table that references the related type's PK.
+    ///                If nil, derived by convention from the related type at preload time.
+    public init(junctionTable: String, parentFK: String? = nil, relatedFK: String? = nil) {
+        let relatedTypeName = String(describing: T.self)
+        self.lazyRelation = SpectroLazyRelation<[T]>(relationshipInfo: RelationshipInfo(
+            name: "",
+            relatedTypeName: relatedTypeName,
+            kind: .manyToMany,
+            foreignKey: nil,
+            junctionTable: junctionTable,
+            parentForeignKey: parentFK ?? "",
+            relatedForeignKey: relatedFK ?? ""
+        ))
+    }
+
+    public init(wrappedValue: [T] = []) {
+        self.lazyRelation = SpectroLazyRelation<[T]>(relationshipInfo: RelationshipInfo(
+            name: "",
+            relatedTypeName: String(describing: T.self),
+            kind: .manyToMany,
+            foreignKey: nil
+        ))
+    }
+
+    public init(relationshipInfo: RelationshipInfo) {
+        self.lazyRelation = SpectroLazyRelation<[T]>(relationshipInfo: relationshipInfo)
+    }
+}

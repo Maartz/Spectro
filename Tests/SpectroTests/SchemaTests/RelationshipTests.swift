@@ -105,4 +105,11 @@ struct RelationshipTests {
         let fk = PreloadQuery<TestUser>.conventionalForeignKey(for: TestUser.self)
         #expect(fk == "testUserId")
     }
+
+    @Test("BelongsTo FK derives from related type, not parent type")
+    func belongsToForeignKeyDerivation() {
+        // For Post belongsTo User, FK should derive from User → "relUserId", not from Post → "relPostId"
+        let fk = PreloadQuery<RelPost>.conventionalForeignKey(for: RelUser.self)
+        #expect(fk == "relUserId")
+    }
 }

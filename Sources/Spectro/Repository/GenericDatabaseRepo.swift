@@ -25,6 +25,19 @@ public actor GenericDatabaseRepo: Repo {
         try await connection.executeUpdate(sql: sql)
     }
 
+    /// Execute a raw SQL query with parameters and return raw PostgresRow results.
+    /// Useful for junction table queries in many-to-many preloading.
+    public func executeRawQuery(
+        sql: String,
+        parameters: [PostgresData] = []
+    ) async throws -> [PostgresRow] {
+        try await connection.executeQuery(
+            sql: sql,
+            parameters: parameters,
+            resultMapper: { $0 }
+        )
+    }
+
     // MARK: - CRUD
 
     public func get<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T? {

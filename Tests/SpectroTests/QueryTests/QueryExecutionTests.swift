@@ -181,8 +181,13 @@ struct QueryExecutionTests {
                     .where { $0.name == "NonExistent" }
                     .firstOrFail()
                 Issue.record("Expected SpectroError.notFound to be thrown")
-            } catch is SpectroError {
-                // Expected
+            } catch let error as SpectroError {
+                // Verify it is specifically .notFound, not a connection/query error
+                // that would mask a pool shutdown race.
+                guard case .notFound = error else {
+                    Issue.record("Expected SpectroError.notFound but got: \(error)")
+                    return
+                }
             }
         }
     }

@@ -88,6 +88,54 @@ struct TestMacroUser {
 
 // MARK: - Manual Schema Definitions (continued)
 
+// MARK: - Relationship Test Schemas (for preload integration tests)
+
+@Schema("rel_users")
+struct RelUser {
+    @ID var id: UUID
+    @Column var name: String
+    @Column var email: String
+    @Timestamp var createdAt: Date
+    @HasMany var posts: [RelPost]
+    @HasOne var profile: RelProfile?
+    @ManyToMany(junctionTable: "rel_user_tags", parentFK: "relUserId", relatedFK: "relTagId")
+    var tags: [RelTag]
+}
+
+@Schema("rel_posts")
+struct RelPost {
+    @ID var id: UUID
+    @Column var title: String
+    @Column var body: String
+    @ForeignKey var relUserId: UUID
+    @Timestamp var createdAt: Date
+    @BelongsTo var relUser: RelUser?
+}
+
+@Schema("rel_profiles")
+struct RelProfile {
+    @ID var id: UUID
+    @Column var bio: String
+    @ForeignKey var relUserId: UUID
+    @Timestamp var createdAt: Date
+    @BelongsTo var relUser: RelUser?
+}
+
+@Schema("rel_tags")
+struct RelTag {
+    @ID var id: UUID
+    @Column var name: String
+}
+
+@Schema("rel_user_tags")
+struct RelUserTag {
+    @ID var id: UUID
+    @ForeignKey var relUserId: UUID
+    @ForeignKey var relTagId: UUID
+}
+
+// MARK: - Manual Schema Definitions (continued)
+
 struct TestPost: Schema, SchemaBuilder {
     static let tableName = "test_posts"
 

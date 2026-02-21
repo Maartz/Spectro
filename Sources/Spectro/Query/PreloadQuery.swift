@@ -40,7 +40,16 @@ public struct PreloadQuery<T: Schema>: Sendable {
         _ keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
         foreignKey: String? = nil
     ) -> PreloadQuery<T> {
-        PreloadQuery(
+        // Detect if this is a many-to-many relationship by checking the temp instance
+        let tempInstance = T()
+        let kind = tempInstance[keyPath: keyPath].relationshipInfo.kind
+        if kind == .manyToMany {
+            return PreloadQuery(
+                baseQuery: baseQuery,
+                preloaders: preloaders + [Self.manyToManyPreloader(keyPath: keyPath, parentType: T.self)]
+            )
+        }
+        return PreloadQuery(
             baseQuery: baseQuery,
             preloaders: preloaders + [Self.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)]
         )
@@ -132,7 +141,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
                 try await batchLoadHasOne(entities: entities, keyPath: box.value, foreignKey: fk, repo: repo)
             }
         case .belongsTo:
-            let fk = foreignKey ?? conventionalForeignKey(for: parentType)
+            let fk = foreignKey ?? conventionalForeignKey(for: Related.self)
             return { entities, repo in
                 try await batchLoadBelongsTo(entities: entities, keyPath: box.value, foreignKey: fk, repo: repo)
             }
@@ -144,7 +153,111 @@ public struct PreloadQuery<T: Schema>: Sendable {
         }
     }
 
+    /// Creates a preloader for a many-to-many relationship.
+    /// Queries the junction table, then the related table, grouping results back to parents.
+    static func manyToManyPreloader<Related: Schema>(
+        keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
+        parentType: T.Type
+    ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
+        let tempInstance = T()
+        let relInfo = tempInstance[keyPath: keyPath].relationshipInfo
+        let junctionTable = relInfo.junctionTable ?? ""
+        let parentFK = (relInfo.parentForeignKey?.isEmpty == false)
+            ? relInfo.parentForeignKey!
+            : conventionalForeignKey(for: parentType)
+        let relatedFK = (relInfo.relatedForeignKey?.isEmpty == false)
+            ? relInfo.relatedForeignKey!
+            : conventionalForeignKey(for: Related.self)
+        let box = KPBox(value: keyPath)
+        return { entities, repo in
+            try await batchLoadManyToMany(
+                entities: entities,
+                keyPath: box.value,
+                junctionTable: junctionTable,
+                parentFK: parentFK,
+                relatedFK: relatedFK,
+                repo: repo
+            )
+        }
+    }
+
     // MARK: - Batch Loading
+
+    private static func batchLoadManyToMany<Related: Schema>(
+        entities: [T],
+        keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
+        junctionTable: String,
+        parentFK: String,
+        relatedFK: String,
+        repo: GenericDatabaseRepo
+    ) async throws -> [T] {
+        let metadata = await SchemaRegistry.shared.register(T.self)
+        guard let pkField = metadata.primaryKeyField else { return entities }
+
+        let parentIds = entities.compactMap { extractUUID(from: $0, fieldName: pkField) }
+        guard !parentIds.isEmpty else { return entities }
+
+        // Step 1: Query junction table for all rows matching parent IDs
+        let junctionRows = try await batchFetchJunction(
+            junctionTable: junctionTable,
+            whereColumn: parentFK.snakeCase(),
+            relatedColumn: relatedFK.snakeCase(),
+            inIds: parentIds,
+            repo: repo
+        )
+
+        // Build parent → [relatedId] mapping and collect unique related IDs
+        var parentToRelatedIds: [UUID: [UUID]] = [:]
+        var uniqueRelatedIds = Set<UUID>()
+        for (pId, rId) in junctionRows {
+            parentToRelatedIds[pId, default: []].append(rId)
+            uniqueRelatedIds.insert(rId)
+        }
+
+        guard !uniqueRelatedIds.isEmpty else {
+            // No junction rows found — return entities with empty arrays
+            return entities.map { entity in
+                var e = entity
+                e[keyPath: keyPath] = SpectroLazyRelation(
+                    loaded: [],
+                    relationshipInfo: entity[keyPath: keyPath].relationshipInfo
+                )
+                return e
+            }
+        }
+
+        // Step 2: Fetch related entities by their PK
+        let relatedMeta = await SchemaRegistry.shared.register(Related.self)
+        guard let relPK = relatedMeta.primaryKeyField else { return entities }
+
+        let relatedEntities: [Related] = try await batchFetch(
+            relatedType: Related.self,
+            whereColumn: relPK.snakeCase(),
+            inIds: Array(uniqueRelatedIds),
+            repo: repo
+        )
+
+        // Index related entities by PK
+        var relatedIndex: [UUID: Related] = [:]
+        for r in relatedEntities {
+            if let id = extractUUID(from: r, fieldName: relPK) {
+                relatedIndex[id] = r
+            }
+        }
+
+        // Step 3: Map results back to parent entities
+        return entities.map { entity in
+            var e = entity
+            let parentId = extractUUID(from: entity, fieldName: pkField)
+            let relatedIds = parentId.flatMap { parentToRelatedIds[$0] } ?? []
+            let loaded = relatedIds.compactMap { relatedIndex[$0] }
+            e[keyPath: keyPath] = SpectroLazyRelation(
+                loaded: loaded,
+                relationshipInfo: entity[keyPath: keyPath].relationshipInfo
+            )
+            return e
+        }
+    }
 
     private static func batchLoadHasMany<Related: Schema>(
         entities: [T],
@@ -286,6 +399,37 @@ public struct PreloadQuery<T: Schema>: Sendable {
             parameters: params
         )
         return try await repo.query(relatedType).where { _ in condition }.all()
+    }
+
+    /// Execute `SELECT parentFK, relatedFK FROM junction WHERE parentFK IN (ids)`.
+    /// Returns an array of (parentId, relatedId) tuples from the junction table.
+    private static func batchFetchJunction(
+        junctionTable: String,
+        whereColumn: String,
+        relatedColumn: String,
+        inIds: [UUID],
+        repo: GenericDatabaseRepo
+    ) async throws -> [(UUID, UUID)] {
+        let placeholders = (1...inIds.count).map { "$\($0)" }.joined(separator: ", ")
+        let sql = """
+            SELECT "\(whereColumn)", "\(relatedColumn)" FROM "\(junctionTable)" WHERE "\(whereColumn)" IN (\(placeholders))
+            """
+        let params = inIds.map { PostgresData(uuid: $0) }
+
+        let rows = try await repo.executeRawQuery(
+            sql: sql,
+            parameters: params
+        )
+
+        var result: [(UUID, UUID)] = []
+        for row in rows {
+            let ra = row.makeRandomAccess()
+            if let parentId = ra[data: whereColumn].uuid,
+               let relatedId = ra[data: relatedColumn].uuid {
+                result.append((parentId, relatedId))
+            }
+        }
+        return result
     }
 
     // MARK: - Helpers

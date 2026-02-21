@@ -229,7 +229,15 @@ public struct Query<T: Schema>: Sendable {
         _ keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
         foreignKey: String? = nil
     ) -> PreloadQuery<T> {
-        PreloadQuery(baseQuery: self, preloaders: [
+        // Detect if this is a many-to-many relationship by checking the temp instance
+        let tempInstance = T()
+        let kind = tempInstance[keyPath: keyPath].relationshipInfo.kind
+        if kind == .manyToMany {
+            return PreloadQuery(baseQuery: self, preloaders: [
+                PreloadQuery<T>.manyToManyPreloader(keyPath: keyPath, parentType: T.self)
+            ])
+        }
+        return PreloadQuery(baseQuery: self, preloaders: [
             PreloadQuery<T>.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)
         ])
     }

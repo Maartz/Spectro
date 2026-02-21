@@ -15,6 +15,12 @@ public actor DatabaseConnection {
     private let configuration: DatabaseConfiguration
     private var isShutdown = false
 
+    /// Tracks the number of in-flight query operations. shutdown() waits for
+    /// this to reach zero before tearing down the pool, preventing SIGBUS
+    /// crashes caused by NIO future callbacks accessing a freed pool.
+    private var activeOperations = 0
+    private var shutdownContinuation: CheckedContinuation<Void, Never>?
+
     public init(configuration: DatabaseConfiguration) throws {
         self.configuration = configuration
         self.eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: configuration.numberOfThreads)
@@ -37,6 +43,28 @@ public actor DatabaseConnection {
         )
     }
 
+    // MARK: - Operation Tracking
+    //
+    // Every pool operation is bracketed by beginOperation / endOperation so that
+    // shutdown() can wait for all in-flight NIO futures to complete before tearing
+    // down the pool. Without this, a concurrent shutdown could free pool memory
+    // while a future callback is still referencing it, causing a SIGBUS.
+
+    private func beginOperation() throws {
+        guard !isShutdown else {
+            throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
+        }
+        activeOperations += 1
+    }
+
+    private func endOperation() {
+        activeOperations -= 1
+        if activeOperations == 0, let continuation = shutdownContinuation {
+            shutdownContinuation = nil
+            continuation.resume()
+        }
+    }
+
     // MARK: - Query Execution
 
     public func executeQuery<T: Sendable>(
@@ -44,58 +72,72 @@ public actor DatabaseConnection {
         parameters: [PostgresData] = [],
         resultMapper: @Sendable @escaping (PostgresRow) throws -> T
     ) async throws -> [T] {
-        guard !isShutdown else {
-            throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
-        }
+        try beginOperation()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let future: EventLoopFuture<[T]> = pools.withConnection { connection in
-                connection.query(sql, parameters).flatMapThrowing { result in
-                    try result.rows.map(resultMapper)
+        do {
+            let result: [T] = try await withCheckedThrowingContinuation { continuation in
+                let future: EventLoopFuture<[T]> = pools.withConnection { connection in
+                    connection.query(sql, parameters).flatMapThrowing { result in
+                        try result.rows.map(resultMapper)
+                    }
+                }
+                future.whenComplete { result in
+                    switch result {
+                    case .success(let rows): continuation.resume(returning: rows)
+                    case .failure(let error): continuation.resume(throwing: SpectroError.queryExecutionFailed(sql: sql, error: error))
+                    }
                 }
             }
-            future.whenComplete { result in
-                switch result {
-                case .success(let rows): continuation.resume(returning: rows)
-                case .failure(let error): continuation.resume(throwing: SpectroError.queryExecutionFailed(sql: sql, error: error))
-                }
-            }
+            endOperation()
+            return result
+        } catch {
+            endOperation()
+            throw error
         }
     }
 
     public func executeUpdate(sql: String, parameters: [PostgresData] = []) async throws {
-        guard !isShutdown else {
-            throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
-        }
+        try beginOperation()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let future: EventLoopFuture<Void> = pools.withConnection { connection in
-                connection.query(sql, parameters).map { _ in }
-            }
-            future.whenComplete { result in
-                switch result {
-                case .success: continuation.resume()
-                case .failure(let error): continuation.resume(throwing: SpectroError.queryExecutionFailed(sql: sql, error: error))
+        do {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let future: EventLoopFuture<Void> = pools.withConnection { connection in
+                    connection.query(sql, parameters).map { _ in }
+                }
+                future.whenComplete { result in
+                    switch result {
+                    case .success: continuation.resume()
+                    case .failure(let error): continuation.resume(throwing: SpectroError.queryExecutionFailed(sql: sql, error: error))
+                    }
                 }
             }
+            endOperation()
+        } catch {
+            endOperation()
+            throw error
         }
     }
 
     public func execute(sql: String, parameters: [PostgresData] = []) async throws -> Int {
-        guard !isShutdown else {
-            throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
-        }
+        try beginOperation()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let future: EventLoopFuture<Int> = pools.withConnection { connection in
-                connection.query(sql, parameters).map { _ in 1 }
-            }
-            future.whenComplete { result in
-                switch result {
-                case .success(let count): continuation.resume(returning: count)
-                case .failure(let error): continuation.resume(throwing: SpectroError.queryExecutionFailed(sql: sql, error: error))
+        do {
+            let result: Int = try await withCheckedThrowingContinuation { continuation in
+                let future: EventLoopFuture<Int> = pools.withConnection { connection in
+                    connection.query(sql, parameters).map { _ in 1 }
+                }
+                future.whenComplete { result in
+                    switch result {
+                    case .success(let count): continuation.resume(returning: count)
+                    case .failure(let error): continuation.resume(throwing: SpectroError.queryExecutionFailed(sql: sql, error: error))
+                    }
                 }
             }
+            endOperation()
+            return result
+        } catch {
+            endOperation()
+            throw error
         }
     }
 
@@ -108,32 +150,37 @@ public actor DatabaseConnection {
     public func transaction<T: Sendable>(
         _ work: @escaping @Sendable (TransactionContext) async throws -> T
     ) async throws -> T {
-        guard !isShutdown else {
-            throw SpectroError.connectionFailed(underlying: DatabaseConnectionError.connectionClosed)
-        }
+        try beginOperation()
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let future: EventLoopFuture<T> = pools.withConnection { connection in
-                connection.query("BEGIN ISOLATION LEVEL READ COMMITTED").flatMap { _ in
-                    let context = TransactionContext(connection: connection)
+        do {
+            let result: T = try await withCheckedThrowingContinuation { continuation in
+                let future: EventLoopFuture<T> = pools.withConnection { connection in
+                    connection.query("BEGIN ISOLATION LEVEL READ COMMITTED").flatMap { _ in
+                        let context = TransactionContext(connection: connection)
 
-                    return connection.eventLoop.makeFutureWithTask {
-                        try await work(context)
-                    }
-                    .flatMap { result in
-                        connection.query("COMMIT").map { _ in result }
-                    }
-                    .flatMapError { error in
-                        connection.query("ROLLBACK").flatMapThrowing { _ in
-                            throw SpectroError.transactionFailed(underlying: error)
+                        return connection.eventLoop.makeFutureWithTask {
+                            try await work(context)
+                        }
+                        .flatMap { result in
+                            connection.query("COMMIT").map { _ in result }
+                        }
+                        .flatMapError { error in
+                            connection.query("ROLLBACK").flatMapThrowing { _ in
+                                throw SpectroError.transactionFailed(underlying: error)
+                            }
                         }
                     }
                 }
-            }
 
-            future.whenComplete { result in
-                continuation.resume(with: result)
+                future.whenComplete { result in
+                    continuation.resume(with: result)
+                }
             }
+            endOperation()
+            return result
+        } catch {
+            endOperation()
+            throw error
         }
     }
 
@@ -144,6 +191,16 @@ public actor DatabaseConnection {
     public func shutdown() async {
         guard !isShutdown else { return }
         isShutdown = true
+
+        // Wait for all in-flight operations to drain before tearing down the
+        // pool. This prevents SIGBUS / Signal 10 crashes caused by NIO future
+        // callbacks referencing freed pool memory.
+        if activeOperations > 0 {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                shutdownContinuation = continuation
+            }
+        }
+
         // pools.shutdown() is @available(*, noasync) because it calls wait()
         // internally. Delegating to a nonisolated sync helper escapes that
         // restriction without introducing a real deadlock risk — the pool

@@ -7,7 +7,7 @@ public struct SchemaMacro {}
 // MARK: - Property Analysis
 
 private enum WrapperKind {
-    case id, column, timestamp, foreignKey, hasMany, hasOne, belongsTo
+    case id, column, timestamp, foreignKey, hasMany, hasOne, belongsTo, manyToMany
 }
 
 private struct PropertyInfo {
@@ -18,6 +18,7 @@ private struct PropertyInfo {
     let wrapper: WrapperKind
     let hasExplicitDefault: Bool
     let explicitDefault: String?
+    let hasWrapperArguments: Bool  // Whether the @Wrapper has arguments, e.g. @ManyToMany(junctionTable: ...)
 }
 
 private let columnAttributeNames: Set<String> = ["ID", "Column", "Timestamp", "ForeignKey"]
@@ -30,6 +31,7 @@ private func classifyWrapper(_ attrNames: [String]) -> WrapperKind? {
     if attrNames.contains("HasMany") { return .hasMany }
     if attrNames.contains("HasOne") { return .hasOne }
     if attrNames.contains("BelongsTo") { return .belongsTo }
+    if attrNames.contains("ManyToMany") { return .manyToMany }
     return nil
 }
 
@@ -42,14 +44,21 @@ private func collectProperties(from structDecl: StructDeclSyntax) -> [PropertyIn
               let typeAnnotation = binding.typeAnnotation?.type
         else { return nil }
 
-        let attrNames: [String] = varDecl.attributes.compactMap {
-            $0.as(AttributeSyntax.self)?
-                .attributeName
-                .as(IdentifierTypeSyntax.self)?
-                .name.text
+        let attrs: [AttributeSyntax] = varDecl.attributes.compactMap {
+            $0.as(AttributeSyntax.self)
+        }
+        let attrNames: [String] = attrs.compactMap {
+            $0.attributeName.as(IdentifierTypeSyntax.self)?.name.text
         }
 
         guard let wrapper = classifyWrapper(attrNames) else { return nil }
+
+        // Check if the wrapper attribute has explicit arguments (e.g. @ManyToMany(junctionTable: ...))
+        let hasWrapperArgs = attrs.contains { attr in
+            guard let name = attr.attributeName.as(IdentifierTypeSyntax.self)?.name.text,
+                  classifyWrapper([name]) == wrapper else { return false }
+            return attr.arguments != nil
+        }
 
         let isOptional = typeAnnotation.is(OptionalTypeSyntax.self)
         let baseType: String
@@ -66,7 +75,8 @@ private func collectProperties(from structDecl: StructDeclSyntax) -> [PropertyIn
             isOptional: isOptional,
             wrapper: wrapper,
             hasExplicitDefault: binding.initializer != nil,
-            explicitDefault: binding.initializer?.value.trimmedDescription
+            explicitDefault: binding.initializer?.value.trimmedDescription,
+            hasWrapperArguments: hasWrapperArgs
         )
     }
 }
@@ -86,8 +96,8 @@ private func defaultValueExpression(for prop: PropertyInfo) -> String {
     case .id:                  return "UUID()"
     case .timestamp:           return "Date()"
     case .foreignKey:          return "UUID()"
-    case .hasMany:             return "[]"
-    case .hasOne, .belongsTo:  return "nil"
+    case .hasMany, .manyToMany: return "[]"
+    case .hasOne, .belongsTo:   return "nil"
     case .column:
         switch prop.typeName {
         case "String": return "\"\""
@@ -162,7 +172,13 @@ extension SchemaMacro: MemberMacro {
 
         // --- init() ---
         if !existing.hasDefaultInit {
-            let assignments = properties.map { prop in
+            // Skip @ManyToMany properties with wrapper arguments — they get their
+            // default from the wrapper declaration (e.g. @ManyToMany(junctionTable: ...))
+            // so we must not overwrite them with `self.tags = []`.
+            let initProps = properties.filter {
+                !($0.wrapper == .manyToMany && $0.hasWrapperArguments)
+            }
+            let assignments = initProps.map { prop in
                 if let explicit = prop.explicitDefault, prop.hasExplicitDefault {
                     return "self.\(prop.name) = \(explicit)"
                 }
@@ -189,13 +205,17 @@ extension SchemaMacro: MemberMacro {
                 }
             }
 
-            let assignments = properties.map { prop in
+            // Skip @ManyToMany properties with wrapper arguments in convenience init too
+            let convInitProps = properties.filter {
+                !($0.wrapper == .manyToMany && $0.hasWrapperArguments)
+            }
+            let assignments = convInitProps.map { prop in
                 switch prop.wrapper {
                 case .id:                  return "self.\(prop.name) = UUID()"
                 case .timestamp:           return "self.\(prop.name) = Date()"
                 case .column, .foreignKey: return "self.\(prop.name) = \(prop.name)"
-                case .hasMany:             return "self.\(prop.name) = []"
-                case .hasOne, .belongsTo:  return "self.\(prop.name) = nil"
+                case .hasMany, .manyToMany: return "self.\(prop.name) = []"
+                case .hasOne, .belongsTo:   return "self.\(prop.name) = nil"
                 }
             }
 
