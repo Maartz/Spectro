@@ -61,7 +61,7 @@ struct AggregateQueryTests {
     @Test("sum returns total of numeric field")
     func testSumReturnsTotal() async throws {
         try await withSeededTable { repo in
-            let total = try await repo.query(TestUser.self).sum("age")
+            let total = try await repo.query(TestUser.self).sum { $0.age }
             #expect(total != nil)
             #expect(total == 90.0) // 30 + 25 + 35
         }
@@ -72,7 +72,7 @@ struct AggregateQueryTests {
     @Test("avg returns average of numeric field")
     func testAvgReturnsAverage() async throws {
         try await withSeededTable { repo in
-            let average = try await repo.query(TestUser.self).avg("age")
+            let average = try await repo.query(TestUser.self).avg { $0.age }
             #expect(average != nil)
             #expect(average == 30.0) // (30 + 25 + 35) / 3
         }
@@ -83,7 +83,7 @@ struct AggregateQueryTests {
     @Test("min returns minimum value of numeric field")
     func testMinReturnsMinimum() async throws {
         try await withSeededTable { repo in
-            let minimum = try await repo.query(TestUser.self).min("age")
+            let minimum = try await repo.query(TestUser.self).min { $0.age }
             #expect(minimum != nil)
             #expect(minimum == 25.0) // Bob's age
         }
@@ -94,7 +94,7 @@ struct AggregateQueryTests {
     @Test("max returns maximum value of numeric field")
     func testMaxReturnsMaximum() async throws {
         try await withSeededTable { repo in
-            let maximum = try await repo.query(TestUser.self).max("age")
+            let maximum = try await repo.query(TestUser.self).max { $0.age }
             #expect(maximum != nil)
             #expect(maximum == 35.0) // Charlie's age
         }
@@ -105,10 +105,10 @@ struct AggregateQueryTests {
     @Test("aggregates return nil on empty table")
     func testAggregateOnEmptyTableReturnsNil() async throws {
         try await withEmptyTable { repo in
-            let sumResult = try await repo.query(TestUser.self).sum("age")
-            let avgResult = try await repo.query(TestUser.self).avg("age")
-            let minResult = try await repo.query(TestUser.self).min("age")
-            let maxResult = try await repo.query(TestUser.self).max("age")
+            let sumResult = try await repo.query(TestUser.self).sum { $0.age }
+            let avgResult = try await repo.query(TestUser.self).avg { $0.age }
+            let minResult = try await repo.query(TestUser.self).min { $0.age }
+            let maxResult = try await repo.query(TestUser.self).max { $0.age }
             #expect(sumResult == nil)
             #expect(avgResult == nil)
             #expect(minResult == nil)
@@ -124,23 +124,120 @@ struct AggregateQueryTests {
             // Only active users: Alice (30) and Bob (25)
             let total = try await repo.query(TestUser.self)
                 .where { $0.isActive == true }
-                .sum("age")
+                .sum { $0.age }
             #expect(total == 55.0) // 30 + 25
 
             let average = try await repo.query(TestUser.self)
                 .where { $0.isActive == true }
-                .avg("age")
+                .avg { $0.age }
             #expect(average == 27.5) // (30 + 25) / 2
 
             let minimum = try await repo.query(TestUser.self)
                 .where { $0.isActive == true }
-                .min("age")
+                .min { $0.age }
             #expect(minimum == 25.0) // Bob
 
             let maximum = try await repo.query(TestUser.self)
                 .where { $0.isActive == true }
-                .max("age")
+                .max { $0.age }
             #expect(maximum == 30.0) // Alice
+        }
+    }
+
+    // MARK: - Grouped Aggregates
+
+    @Test("groupedSum returns sum per group")
+    func testGroupedSum() async throws {
+        try await withSeededTable { repo in
+            let results = try await repo.query(TestUser.self)
+                .groupBy { $0.isActive }
+                .groupedSum { $0.age }
+
+            #expect(results.count == 2)
+
+            let active = results.first { $0.group["is_active"] == "true" }
+            let inactive = results.first { $0.group["is_active"] == "false" }
+
+            #expect(active?.value == 55.0)   // Alice(30) + Bob(25)
+            #expect(inactive?.value == 35.0)  // Charlie(35)
+        }
+    }
+
+    @Test("groupedCount returns count per group")
+    func testGroupedCount() async throws {
+        try await withSeededTable { repo in
+            let results = try await repo.query(TestUser.self)
+                .groupBy { $0.isActive }
+                .groupedCount()
+
+            #expect(results.count == 2)
+
+            let active = results.first { $0.group["is_active"] == "true" }
+            let inactive = results.first { $0.group["is_active"] == "false" }
+
+            #expect(active?.value == 2.0)
+            #expect(inactive?.value == 1.0)
+        }
+    }
+
+    @Test("groupedAvg with where filter")
+    func testGroupedAvgWithFilter() async throws {
+        try await withSeededTable { repo in
+            // Only active users, grouped by is_active — should be one group
+            let results = try await repo.query(TestUser.self)
+                .where { $0.isActive == true }
+                .groupBy { $0.isActive }
+                .groupedAvg { $0.age }
+
+            #expect(results.count == 1)
+            #expect(results.first?.value == 27.5) // (30 + 25) / 2
+        }
+    }
+
+    @Test("groupedMin and groupedMax per group")
+    func testGroupedMinMax() async throws {
+        try await withSeededTable { repo in
+            let minResults = try await repo.query(TestUser.self)
+                .groupBy { $0.isActive }
+                .groupedMin { $0.age }
+
+            let maxResults = try await repo.query(TestUser.self)
+                .groupBy { $0.isActive }
+                .groupedMax { $0.age }
+
+            let activeMin = minResults.first { $0.group["is_active"] == "true" }
+            let activeMax = maxResults.first { $0.group["is_active"] == "true" }
+
+            #expect(activeMin?.value == 25.0) // Bob
+            #expect(activeMax?.value == 30.0) // Alice
+        }
+    }
+
+    @Test("groupedSum without groupBy throws error")
+    func testGroupedSumWithoutGroupByThrows() async throws {
+        try await withSeededTable { repo in
+            do {
+                let _ = try await repo.query(TestUser.self)
+                    .groupedSum { $0.age }
+                Issue.record("Expected SpectroError.invalidQuery to be thrown")
+            } catch is SpectroError {
+                // Expected
+            }
+        }
+    }
+
+    @Test("multi-field groupBy works")
+    func testMultiFieldGroupBy() async throws {
+        try await withSeededTable { repo in
+            let results = try await repo.query(TestUser.self)
+                .groupBy({ $0.isActive }, { $0.name })
+                .groupedCount()
+
+            // Each user has a unique name, so each row is its own group
+            #expect(results.count == 3)
+            for result in results {
+                #expect(result.value == 1.0)
+            }
         }
     }
 }

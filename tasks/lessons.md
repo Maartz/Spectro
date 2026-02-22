@@ -44,6 +44,9 @@
 - `ResponseCodable` (from Hummingbird) makes structs JSON-encodable as responses
 - Route params: `context.parameters.require("id", as: UUID.self)`
 
+## Swift Testing
+- `await #expect(throws: SomeError.self) { try await ... }` causes SIGBUS (signal 10) crashes on Swift 6.1/6.2. Use `do { try await ...; Issue.record("Expected error") } catch is SomeError { }` instead.
+
 ## SQL Generation
 - PostgreSQL SUM/MIN/MAX on INTEGER returns BIGINT, not DOUBLE — use CAST(... AS DOUBLE PRECISION) for aggregate results
 - Always use `.quoted` for identifier quoting — never manual `"\"\(name)\""` interpolation

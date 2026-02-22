@@ -22,6 +22,9 @@ public struct Query<T: Schema>: Sendable {
     internal var offsetValue: Int?
     private var selectedFields: Set<String>?
     internal var joins: [JoinClause] = []
+    internal var groupByFields: [String] = []
+    internal var havingClause: String = ""
+    internal var havingParameters: [PostgresData] = []
 
     internal init(schema: T.Type, connection: DatabaseConnection) {
         self.schema = schema
@@ -216,6 +219,38 @@ public struct Query<T: Schema>: Sendable {
         return copy
     }
 
+    // MARK: - GROUP BY / HAVING
+
+    public func groupBy<V>(_ field: (QueryBuilder<T>) -> QueryField<V>) -> Query<T> {
+        var copy = self
+        let queryField = field(QueryBuilder<T>())
+        copy.groupByFields.append(queryField.name.snakeCase())
+        return copy
+    }
+
+    public func groupBy<V1, V2>(
+        _ f1: (QueryBuilder<T>) -> QueryField<V1>,
+        _ f2: (QueryBuilder<T>) -> QueryField<V2>
+    ) -> Query<T> {
+        var copy = self
+        let builder = QueryBuilder<T>()
+        copy.groupByFields.append(f1(builder).name.snakeCase())
+        copy.groupByFields.append(f2(builder).name.snakeCase())
+        return copy
+    }
+
+    public func having(_ condition: (QueryBuilder<T>) -> QueryCondition) -> Query<T> {
+        var copy = self
+        let builder = QueryBuilder<T>()
+        let cond = condition(builder)
+        if !copy.havingClause.isEmpty {
+            copy.havingClause += " AND "
+        }
+        copy.havingClause += cond.sql
+        copy.havingParameters.append(contentsOf: cond.parameters)
+        return copy
+    }
+
     // MARK: - Relationship Preloading
     //
     // Keys paths must be WritableKeyPath so PreloadQuery can inject loaded data
@@ -294,8 +329,24 @@ public struct Query<T: Schema>: Sendable {
         return results.first ?? 0
     }
 
-    public func sum(_ field: String) async throws -> Double? {
-        let sql = buildAggregateSQL(function: "SUM", column: field)
+    public func sum<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> Double? {
+        try await aggregateExecute(function: "SUM", column: field(QueryBuilder<T>()).name)
+    }
+
+    public func avg<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> Double? {
+        try await aggregateExecute(function: "AVG", column: field(QueryBuilder<T>()).name)
+    }
+
+    public func min<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> Double? {
+        try await aggregateExecute(function: "MIN", column: field(QueryBuilder<T>()).name)
+    }
+
+    public func max<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> Double? {
+        try await aggregateExecute(function: "MAX", column: field(QueryBuilder<T>()).name)
+    }
+
+    private func aggregateExecute(function: String, column: String) async throws -> Double? {
+        let sql = buildAggregateSQL(function: function, column: column)
         let results = try await connection.executeQuery(
             sql: sql,
             parameters: parameters,
@@ -306,40 +357,101 @@ public struct Query<T: Schema>: Sendable {
         return results.first ?? nil
     }
 
-    public func avg(_ field: String) async throws -> Double? {
-        let sql = buildAggregateSQL(function: "AVG", column: field)
-        let results = try await connection.executeQuery(
-            sql: sql,
-            parameters: parameters,
-            resultMapper: { row in
-                row.makeRandomAccess()[data: "agg_result"].double
-            }
-        )
-        return results.first ?? nil
+    // MARK: - Grouped Aggregates
+
+    public func groupedSum<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> [GroupedResult] {
+        try await groupedAggregateExecute(function: "SUM", column: field(QueryBuilder<T>()).name)
     }
 
-    public func min(_ field: String) async throws -> Double? {
-        let sql = buildAggregateSQL(function: "MIN", column: field)
-        let results = try await connection.executeQuery(
-            sql: sql,
-            parameters: parameters,
-            resultMapper: { row in
-                row.makeRandomAccess()[data: "agg_result"].double
-            }
-        )
-        return results.first ?? nil
+    public func groupedAvg<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> [GroupedResult] {
+        try await groupedAggregateExecute(function: "AVG", column: field(QueryBuilder<T>()).name)
     }
 
-    public func max(_ field: String) async throws -> Double? {
-        let sql = buildAggregateSQL(function: "MAX", column: field)
-        let results = try await connection.executeQuery(
-            sql: sql,
-            parameters: parameters,
+    public func groupedMin<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> [GroupedResult] {
+        try await groupedAggregateExecute(function: "MIN", column: field(QueryBuilder<T>()).name)
+    }
+
+    public func groupedMax<V: Numeric>(_ field: (QueryBuilder<T>) -> QueryField<V>) async throws -> [GroupedResult] {
+        try await groupedAggregateExecute(function: "MAX", column: field(QueryBuilder<T>()).name)
+    }
+
+    public func groupedCount() async throws -> [GroupedResult] {
+        guard !groupByFields.isEmpty else {
+            throw SpectroError.invalidQuery("groupedCount() requires at least one groupBy() clause")
+        }
+
+        let table = T.tableName.quoted
+        let groupColumns = groupByFields.map { $0.quoted }.joined(separator: ", ")
+        let joinClause = buildJoinClause()
+
+        var sql = "SELECT \(groupColumns), COUNT(*) as agg_result FROM \(table)"
+
+        if !joinClause.isEmpty { sql += " \(joinClause)" }
+        if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
+        sql += " GROUP BY \(groupColumns)"
+        if !havingClause.isEmpty { sql += " HAVING \(havingClause)" }
+
+        let orderClause = buildOrderClause()
+        if !orderClause.isEmpty { sql += " ORDER BY \(orderClause)" }
+        let limitClause = buildLimitClause()
+        if !limitClause.isEmpty { sql += limitClause }
+
+        let finalSQL = renumberPlaceholders(in: sql)
+        let allParameters = parameters + havingParameters
+
+        return try await connection.executeQuery(
+            sql: finalSQL,
+            parameters: allParameters,
             resultMapper: { row in
-                row.makeRandomAccess()[data: "agg_result"].double
+                let randomAccess = row.makeRandomAccess()
+                var group: [String: String] = [:]
+                for col in self.groupByFields {
+                    if let str = randomAccess[data: col].string {
+                        group[col] = str
+                    } else if let b = randomAccess[data: col].bool {
+                        group[col] = b ? "true" : "false"
+                    } else if let i = randomAccess[data: col].int {
+                        group[col] = String(i)
+                    } else if let d = randomAccess[data: col].double {
+                        group[col] = String(d)
+                    }
+                }
+                let value = randomAccess[data: "agg_result"].double
+                    ?? randomAccess[data: "agg_result"].int.map(Double.init)
+                return GroupedResult(group: group, value: value)
             }
         )
-        return results.first ?? nil
+    }
+
+    private func groupedAggregateExecute(function: String, column: String) async throws -> [GroupedResult] {
+        guard !groupByFields.isEmpty else {
+            throw SpectroError.invalidQuery("grouped\(function.lowercased().capitalized)() requires at least one groupBy() clause")
+        }
+
+        let sql = buildGroupedAggregateSQL(function: function, column: column)
+        let allParameters = parameters + havingParameters
+
+        return try await connection.executeQuery(
+            sql: sql,
+            parameters: allParameters,
+            resultMapper: { row in
+                let randomAccess = row.makeRandomAccess()
+                var group: [String: String] = [:]
+                for col in self.groupByFields {
+                    if let str = randomAccess[data: col].string {
+                        group[col] = str
+                    } else if let b = randomAccess[data: col].bool {
+                        group[col] = b ? "true" : "false"
+                    } else if let i = randomAccess[data: col].int {
+                        group[col] = String(i)
+                    } else if let d = randomAccess[data: col].double {
+                        group[col] = String(d)
+                    }
+                }
+                let value = randomAccess[data: "agg_result"].double
+                return GroupedResult(group: group, value: value)
+            }
+        )
     }
 
     // MARK: - SQL Building
@@ -381,6 +493,26 @@ public struct Query<T: Schema>: Sendable {
 
         if !joinClause.isEmpty { sql += " \(joinClause)" }
         if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
+
+        return renumberPlaceholders(in: sql)
+    }
+
+    private func buildGroupedAggregateSQL(function: String, column: String) -> String {
+        let table = T.tableName.quoted
+        let groupColumns = groupByFields.map { $0.quoted }.joined(separator: ", ")
+        let joinClause = buildJoinClause()
+
+        var sql = "SELECT \(groupColumns), CAST(\(function)(\(column.snakeCase().quoted)) AS DOUBLE PRECISION) as agg_result FROM \(table)"
+
+        if !joinClause.isEmpty { sql += " \(joinClause)" }
+        if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
+        sql += " GROUP BY \(groupColumns)"
+        if !havingClause.isEmpty { sql += " HAVING \(havingClause)" }
+
+        let orderClause = buildOrderClause()
+        if !orderClause.isEmpty { sql += " ORDER BY \(orderClause)" }
+        let limitClause = buildLimitClause()
+        if !limitClause.isEmpty { sql += limitClause }
 
         return renumberPlaceholders(in: sql)
     }
@@ -740,13 +872,6 @@ extension QueryField {
     }
 }
 
-extension QueryField where V: Numeric {
-    public func count() -> String { "COUNT(\(name.snakeCase().quoted))" }
-    public func sum() -> String { "SUM(\(name.snakeCase().quoted))" }
-    public func avg() -> String { "AVG(\(name.snakeCase().quoted))" }
-    public func min() -> String { "MIN(\(name.snakeCase().quoted))" }
-    public func max() -> String { "MAX(\(name.snakeCase().quoted))" }
-}
 
 // MARK: - Logical Operators
 

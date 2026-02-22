@@ -123,6 +123,89 @@ struct UpsertBulkInsertTests {
         }
     }
 
+    // MARK: - Constraint Conflict Target Tests
+
+    @Test("Upsert with .constraint() inserts new row when no conflict exists")
+    func testConstraintUpsertInsertsNewRow() async throws {
+        try await withUpsertTable { repo in
+            let user = TestUser(name: "Alice", email: "alice@test.com", age: 30)
+            let result = try await repo.upsert(
+                user,
+                conflictTarget: .constraint("test_users_email_unique"),
+                set: nil
+            )
+
+            #expect(result.name == "Alice")
+            #expect(result.email == "alice@test.com")
+            #expect(result.age == 30)
+
+            let all = try await repo.all(TestUser.self)
+            #expect(all.count == 1)
+        }
+    }
+
+    @Test("Upsert with .constraint() updates existing row on conflict")
+    func testConstraintUpsertUpdatesOnConflict() async throws {
+        try await withUpsertTable { repo in
+            let original = try await repo.insert(
+                TestUser(name: "Alice", email: "alice@test.com", age: 30)
+            )
+
+            let upserted = try await repo.upsert(
+                TestUser(name: "Alicia Updated", email: "alice@test.com", age: 31),
+                conflictTarget: .constraint("test_users_email_unique"),
+                set: nil
+            )
+
+            #expect(upserted.email == "alice@test.com")
+            #expect(upserted.name == "Alicia Updated")
+            #expect(upserted.age == 31)
+
+            let all = try await repo.all(TestUser.self)
+            #expect(all.count == 1)
+            #expect(all.first?.id == original.id)
+        }
+    }
+
+    @Test("Upsert with .constraint() and selective set only updates specified columns")
+    func testConstraintUpsertSelectiveSet() async throws {
+        try await withUpsertTable { repo in
+            let _ = try await repo.insert(
+                TestUser(name: "Alice", email: "alice@test.com", age: 30)
+            )
+
+            let upserted = try await repo.upsert(
+                TestUser(name: "Alicia", email: "alice@test.com", age: 99),
+                conflictTarget: .constraint("test_users_email_unique"),
+                set: ["name"]
+            )
+
+            #expect(upserted.email == "alice@test.com")
+            #expect(upserted.name == "Alicia")
+            #expect(upserted.age == 30)
+
+            let all = try await repo.all(TestUser.self)
+            #expect(all.count == 1)
+        }
+    }
+
+    @Test("Upsert with empty set array throws invalidSchema")
+    func testUpsertEmptySetThrows() async throws {
+        try await withUpsertTable { repo in
+            let user = TestUser(name: "Alice", email: "alice@test.com", age: 30)
+            do {
+                let _ = try await repo.upsert(
+                    user,
+                    conflictTarget: .constraint("test_users_email_unique"),
+                    set: []
+                )
+                Issue.record("Expected SpectroError.invalidSchema to be thrown")
+            } catch is SpectroError {
+                // Expected
+            }
+        }
+    }
+
     // MARK: - Bulk Insert Tests
 
     @Test("insertAll with empty array returns empty array")

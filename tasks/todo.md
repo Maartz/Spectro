@@ -41,6 +41,6 @@
 ## Future Work
 - [x] Support user-supplied primary keys in repo.insert() — `includePrimaryKey: Bool` param on insert/upsert/insertAll
 - [x] Fix fromSync(row:) to respect @Column("custom_name") overrides
-- [ ] Test coverage for .constraint(...) conflict target
-- [ ] Type-safe aggregate API with QueryField overloads
-- [ ] Grouped aggregates (GROUP BY)
+- [x] Test coverage for .constraint(...) conflict target (4 tests: insert/update/selective set/empty set error)
+- [x] Type-safe aggregate API — closure-based `.sum { $0.age }` replaces string-based `.sum("age")`
+- [x] Grouped aggregates — GROUP BY/HAVING support with `groupedSum`, `groupedAvg`, `groupedMin`, `groupedMax`, `groupedCount`
