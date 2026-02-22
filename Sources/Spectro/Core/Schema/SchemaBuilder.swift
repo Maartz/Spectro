@@ -44,7 +44,13 @@ extension Schema {
         for child in mirror.children {
             guard let label = child.label else { continue }
             let fieldName = label.hasPrefix("_") ? String(label.dropFirst()) : label
-            let dbColumn = fieldName.snakeCase()
+            let dbColumn: String
+            if let overridable = child.value as? ColumnNameOverridable,
+               let override = overridable.columnName {
+                dbColumn = override
+            } else {
+                dbColumn = fieldName.snakeCase()
+            }
             let dbValue = randomAccess[data: dbColumn]
 
             if let v = dbValue.uuid        { values[fieldName] = v }

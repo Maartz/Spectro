@@ -40,7 +40,7 @@
 
 ## Future Work
 - [x] Support user-supplied primary keys in repo.insert() — `includePrimaryKey: Bool` param on insert/upsert/insertAll
-- [ ] Fix fromSync(row:) to respect @Column("custom_name") overrides
+- [x] Fix fromSync(row:) to respect @Column("custom_name") overrides
 - [ ] Test coverage for .constraint(...) conflict target
 - [ ] Type-safe aggregate API with QueryField overloads
 - [ ] Grouped aggregates (GROUP BY)

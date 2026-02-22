@@ -1,10 +1,17 @@
 import Foundation
 import PostgresKit
 
+// MARK: - Column Name Override Protocol
+
+/// Protocol for property wrappers that support column name overrides.
+protocol ColumnNameOverridable {
+    var columnName: String? { get }
+}
+
 // MARK: - Column Wrappers
 
 @propertyWrapper
-public struct Column<T: Sendable>: Sendable {
+public struct Column<T: Sendable>: Sendable, ColumnNameOverridable {
     public var wrappedValue: T
     public let columnName: String?
 
@@ -38,7 +45,7 @@ public struct Timestamp: Sendable {
 }
 
 @propertyWrapper
-public struct ForeignKey<T: PrimaryKeyType>: Sendable, ForeignKeyWrapperProtocol {
+public struct ForeignKey<T: PrimaryKeyType>: Sendable, ForeignKeyWrapperProtocol, ColumnNameOverridable {
     public var wrappedValue: T
     public let columnName: String?
 

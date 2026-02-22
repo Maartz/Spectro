@@ -106,6 +106,55 @@ struct SchemaTests {
     }
 }
 
+@Suite("fromSync column name override via ColumnNameOverridable")
+struct FromSyncColumnOverrideTests {
+
+    @Test("Mirror discovers ColumnNameOverridable override from @Column wrapper")
+    func mirrorDiscoversColumnOverride() {
+        let instance = TestColumnOverride()
+        let mirror = Mirror(reflecting: instance)
+
+        var resolvedColumns: [String: String] = [:]
+        for child in mirror.children {
+            guard let label = child.label else { continue }
+            let fieldName = label.hasPrefix("_") ? String(label.dropFirst()) : label
+            let dbColumn: String
+            if let overridable = child.value as? ColumnNameOverridable,
+               let override = overridable.columnName {
+                dbColumn = override
+            } else {
+                dbColumn = fieldName.snakeCase()
+            }
+            resolvedColumns[fieldName] = dbColumn
+        }
+
+        // @Column("display_name") var name → "display_name"
+        #expect(resolvedColumns["name"] == "display_name")
+        // @Column var email (no override) → "email"
+        #expect(resolvedColumns["email"] == "email")
+        // @ID var id → "id"
+        #expect(resolvedColumns["id"] == "id")
+    }
+
+    @Test("ForeignKey with column override is detected by ColumnNameOverridable")
+    func foreignKeyColumnOverride() {
+        let fk = ForeignKey<UUID>("custom_fk_col")
+        #expect((fk as ColumnNameOverridable).columnName == "custom_fk_col")
+    }
+
+    @Test("ForeignKey without override returns nil columnName")
+    func foreignKeyNoOverride() {
+        let fk = ForeignKey<UUID>()
+        #expect((fk as ColumnNameOverridable).columnName == nil)
+    }
+
+    @Test("Column without override returns nil columnName")
+    func columnNoOverride() {
+        let col = Column<String>(wrappedValue: "test")
+        #expect((col as ColumnNameOverridable).columnName == nil)
+    }
+}
+
 @Suite("Phase 1D: Schema DSL Improvements")
 struct Phase1DSchemaTests {
 
