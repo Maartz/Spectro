@@ -86,6 +86,127 @@ struct TestMacroUser {
     @Timestamp var createdAt: Date
 }
 
+// MARK: - Phase 1D Test Schemas
+
+/// Schema with a custom column name override via @Column("display_name")
+struct TestColumnOverride: Schema, SchemaBuilder {
+    static let tableName = "test_column_overrides"
+
+    @ID var id: UUID
+    @Column("display_name") var name: String = ""
+    @Column var email: String = ""
+
+    init() {
+        self.id = UUID()
+    }
+
+    static func build(from values: [String: Any]) -> TestColumnOverride {
+        var entity = TestColumnOverride()
+        if let v = values["id"] as? UUID { entity.id = v }
+        if let v = values["name"] as? String { entity.name = v }
+        if let v = values["email"] as? String { entity.email = v }
+        return entity
+    }
+}
+
+/// Schema with a non-optional Column<UUID> to verify it's not dropped by SchemaRegistry
+struct TestWithUuidColumn: Schema, SchemaBuilder {
+    static let tableName = "test_with_uuid_columns"
+
+    @ID var id: UUID
+    @Column var externalId: UUID
+    @Column var name: String
+
+    init() {
+        self.id = UUID()
+        self.externalId = UUID()
+        self.name = ""
+    }
+
+    static func build(from values: [String: Any]) -> TestWithUuidColumn {
+        var entity = TestWithUuidColumn()
+        if let v = values["id"] as? UUID { entity.id = v }
+        if let v = values["externalId"] as? UUID { entity.externalId = v }
+        if let v = values["name"] as? String { entity.name = v }
+        return entity
+    }
+}
+
+// MARK: - Non-UUID Primary Key Test Schemas
+
+/// Schema with an Int (SERIAL) primary key for testing non-UUID PK support.
+struct IntPKItem: Schema, SchemaBuilder {
+    static let tableName = "int_pk_items"
+
+    @ID var id: Int
+    @Column var name: String
+
+    init() {
+        self.id = 0
+        self.name = ""
+    }
+
+    init(name: String) {
+        self.id = 0
+        self.name = name
+    }
+
+    static func build(from values: [String: Any]) -> IntPKItem {
+        var item = IntPKItem()
+        if let v = values["id"] as? Int { item.id = v }
+        if let v = values["name"] as? String { item.name = v }
+        return item
+    }
+}
+
+/// Schema with a String (TEXT) primary key for testing non-UUID PK support.
+struct StringPKItem: Schema, SchemaBuilder {
+    static let tableName = "string_pk_items"
+
+    @ID var id: String
+    @Column var name: String
+
+    init() {
+        self.id = ""
+        self.name = ""
+    }
+
+    init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+
+    static func build(from values: [String: Any]) -> StringPKItem {
+        var item = StringPKItem()
+        if let v = values["id"] as? String { item.id = v }
+        if let v = values["name"] as? String { item.name = v }
+        return item
+    }
+}
+
+/// Schema with an Int foreign key for testing non-UUID FK support.
+struct IntFKChild: Schema, SchemaBuilder {
+    static let tableName = "int_fk_children"
+
+    @ID var id: UUID
+    @Column var label: String
+    @ForeignKey var parentId: Int
+
+    init() {
+        self.id = UUID()
+        self.label = ""
+        self.parentId = 0
+    }
+
+    static func build(from values: [String: Any]) -> IntFKChild {
+        var item = IntFKChild()
+        if let v = values["id"] as? UUID { item.id = v }
+        if let v = values["label"] as? String { item.label = v }
+        if let v = values["parentId"] as? Int { item.parentId = v }
+        return item
+    }
+}
+
 // MARK: - Manual Schema Definitions (continued)
 
 // MARK: - Relationship Test Schemas (for preload integration tests)

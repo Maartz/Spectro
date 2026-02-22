@@ -19,11 +19,12 @@ public struct RelationshipLoader {
         guard let pkField = parentMetadata.primaryKeyField else {
             throw SpectroError.invalidSchema(reason: "Schema \(Parent.self) has no primary key")
         }
-        let parentId = try extractUUID(from: parent, fieldName: pkField)
-            ?? { throw SpectroError.missingRequiredField("Primary key '\(pkField)' not found in \(Parent.self)") }()
+        guard let pkData = extractPrimaryKeyData(from: parent, fieldName: pkField) else {
+            throw SpectroError.missingRequiredField("Primary key '\(pkField)' not found in \(Parent.self)")
+        }
         let condition = QueryCondition(
             sql: "\"\(foreignKey.snakeCase())\" = ?",
-            parameters: [PostgresData(uuid: parentId)]
+            parameters: [pkData]
         )
         return try await repo.query(childType).where { _ in condition }.all()
     }
@@ -52,17 +53,37 @@ public struct RelationshipLoader {
         foreignKey: String,
         using repo: GenericDatabaseRepo
     ) async throws -> Parent? {
-        guard let fkVal = try? extractUUID(from: child, fieldName: foreignKey) else {
+        guard let fkData = extractPrimaryKeyData(from: child, fieldName: foreignKey) else {
             throw SpectroError.missingRequiredField("FK '\(foreignKey)' not found in \(Child.self)")
         }
-        return try await repo.get(parentType, id: fkVal)
+        let parentMeta = await SchemaRegistry.shared.register(parentType)
+        let pkColumn = (parentMeta.primaryKeyField ?? "id").snakeCase()
+        let condition = QueryCondition(
+            sql: "\"\(pkColumn)\" = ?",
+            parameters: [fkData]
+        )
+        return try await repo.query(parentType).where { _ in condition }.first()
     }
 
-    // MARK: - UUID Extraction (also used by PreloadQuery)
+    // MARK: - Primary Key Extraction
 
-    /// Extract a UUID from any `@ID`, `@ForeignKey`, or bare `UUID` property by field name.
+    /// Extract a UUID from a schema property by field name (backward compatibility).
+    /// Delegates to the generic `extractPrimaryKey` and attempts to cast to UUID.
     static func extractUUID<T: Schema>(from instance: T, fieldName: String) -> UUID? {
-        PreloadQuery<T>.extractUUID(from: instance, fieldName: fieldName)
+        guard let key = PreloadQuery<T>.extractPrimaryKey(from: instance, fieldName: fieldName) else {
+            return nil
+        }
+        return key.base as? UUID
+    }
+
+    /// Extract the primary key as `AnyHashable` for dictionary keying.
+    static func extractPrimaryKey<T: Schema>(from instance: T, fieldName: String) -> AnyHashable? {
+        PreloadQuery<T>.extractPrimaryKey(from: instance, fieldName: fieldName)
+    }
+
+    /// Extract the primary key as `PostgresData` for query parameters.
+    static func extractPrimaryKeyData<T: Schema>(from instance: T, fieldName: String) -> PostgresData? {
+        PreloadQuery<T>.extractPrimaryKeyData(from: instance, fieldName: fieldName)
     }
 }
 

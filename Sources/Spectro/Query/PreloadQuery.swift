@@ -194,27 +194,39 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
 
-        let parentIds = entities.compactMap { extractUUID(from: $0, fieldName: pkField) }
-        guard !parentIds.isEmpty else { return entities }
+        // Extract both AnyHashable keys (for dict grouping) and PostgresData (for SQL params)
+        var parentKeys: [AnyHashable] = []
+        var parentParams: [PostgresData] = []
+        for entity in entities {
+            if let key = extractPrimaryKey(from: entity, fieldName: pkField),
+               let data = extractPrimaryKeyData(from: entity, fieldName: pkField) {
+                parentKeys.append(key)
+                parentParams.append(data)
+            }
+        }
+        guard !parentKeys.isEmpty else { return entities }
 
         // Step 1: Query junction table for all rows matching parent IDs
         let junctionRows = try await batchFetchJunction(
             junctionTable: junctionTable,
             whereColumn: parentFK.snakeCase(),
             relatedColumn: relatedFK.snakeCase(),
-            inIds: parentIds,
+            inParams: parentParams,
             repo: repo
         )
 
         // Build parent → [relatedId] mapping and collect unique related IDs
-        var parentToRelatedIds: [UUID: [UUID]] = [:]
-        var uniqueRelatedIds = Set<UUID>()
-        for (pId, rId) in junctionRows {
+        var parentToRelatedIds: [AnyHashable: [AnyHashable]] = [:]
+        var uniqueRelatedKeys = Set<AnyHashable>()
+        var uniqueRelatedParams: [PostgresData] = []
+        for (pId, rId, rData) in junctionRows {
             parentToRelatedIds[pId, default: []].append(rId)
-            uniqueRelatedIds.insert(rId)
+            if uniqueRelatedKeys.insert(rId).inserted {
+                uniqueRelatedParams.append(rData)
+            }
         }
 
-        guard !uniqueRelatedIds.isEmpty else {
+        guard !uniqueRelatedKeys.isEmpty else {
             // No junction rows found — return entities with empty arrays
             return entities.map { entity in
                 var e = entity
@@ -233,14 +245,14 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let relatedEntities: [Related] = try await batchFetch(
             relatedType: Related.self,
             whereColumn: relPK.snakeCase(),
-            inIds: Array(uniqueRelatedIds),
+            inParams: uniqueRelatedParams,
             repo: repo
         )
 
         // Index related entities by PK
-        var relatedIndex: [UUID: Related] = [:]
+        var relatedIndex: [AnyHashable: Related] = [:]
         for r in relatedEntities {
-            if let id = extractUUID(from: r, fieldName: relPK) {
+            if let id = extractPrimaryKey(from: r, fieldName: relPK) {
                 relatedIndex[id] = r
             }
         }
@@ -248,7 +260,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         // Step 3: Map results back to parent entities
         return entities.map { entity in
             var e = entity
-            let parentId = extractUUID(from: entity, fieldName: pkField)
+            let parentId = extractPrimaryKey(from: entity, fieldName: pkField)
             let relatedIds = parentId.flatMap { parentToRelatedIds[$0] } ?? []
             let loaded = relatedIds.compactMap { relatedIndex[$0] }
             e[keyPath: keyPath] = SpectroLazyRelation(
@@ -268,27 +280,33 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
 
-        let parentIds = entities.compactMap { extractUUID(from: $0, fieldName: pkField) }
-        guard !parentIds.isEmpty else { return entities }
+        // Extract both AnyHashable keys and PostgresData params in parallel
+        var parentParams: [PostgresData] = []
+        for entity in entities {
+            if let data = extractPrimaryKeyData(from: entity, fieldName: pkField) {
+                parentParams.append(data)
+            }
+        }
+        guard !parentParams.isEmpty else { return entities }
 
         let related: [Related] = try await batchFetch(
             relatedType: Related.self,
             whereColumn: foreignKey.snakeCase(),
-            inIds: parentIds,
+            inParams: parentParams,
             repo: repo
         )
 
         // Group related entities by their FK value (points back to parent)
-        var grouped: [UUID: [Related]] = [:]
+        var grouped: [AnyHashable: [Related]] = [:]
         for r in related {
-            if let fkVal = extractUUID(from: r, fieldName: foreignKey) {
+            if let fkVal = extractPrimaryKey(from: r, fieldName: foreignKey) {
                 grouped[fkVal, default: []].append(r)
             }
         }
 
         return entities.map { entity in
             var e = entity
-            let parentId = extractUUID(from: entity, fieldName: pkField)
+            let parentId = extractPrimaryKey(from: entity, fieldName: pkField)
             let loaded = parentId.flatMap { grouped[$0] } ?? []
             e[keyPath: keyPath] = SpectroLazyRelation(
                 loaded: loaded,
@@ -307,20 +325,25 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
 
-        let parentIds = entities.compactMap { extractUUID(from: $0, fieldName: pkField) }
-        guard !parentIds.isEmpty else { return entities }
+        var parentParams: [PostgresData] = []
+        for entity in entities {
+            if let data = extractPrimaryKeyData(from: entity, fieldName: pkField) {
+                parentParams.append(data)
+            }
+        }
+        guard !parentParams.isEmpty else { return entities }
 
         let related: [Related] = try await batchFetch(
             relatedType: Related.self,
             whereColumn: foreignKey.snakeCase(),
-            inIds: parentIds,
+            inParams: parentParams,
             repo: repo
         )
 
         // HasOne: keep only the first match per parent
-        var grouped: [UUID: Related] = [:]
+        var grouped: [AnyHashable: Related] = [:]
         for r in related {
-            if let fkVal = extractUUID(from: r, fieldName: foreignKey),
+            if let fkVal = extractPrimaryKey(from: r, fieldName: foreignKey),
                grouped[fkVal] == nil {
                 grouped[fkVal] = r
             }
@@ -328,7 +351,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
         return entities.map { entity in
             var e = entity
-            let parentId = extractUUID(from: entity, fieldName: pkField)
+            let parentId = extractPrimaryKey(from: entity, fieldName: pkField)
             let loaded: Related? = parentId.flatMap { grouped[$0] }
             e[keyPath: keyPath] = SpectroLazyRelation(
                 loaded: loaded,
@@ -344,15 +367,17 @@ public struct PreloadQuery<T: Schema>: Sendable {
         foreignKey: String,      // Column on T that holds the related entity's ID
         repo: GenericDatabaseRepo
     ) async throws -> [T] {
-        // Collect unique FK values from entities
-        var seen = Set<UUID>()
-        var relatedIds: [UUID] = []
+        // Collect unique FK values from entities (both AnyHashable for keying and PostgresData for query)
+        var seen = Set<AnyHashable>()
+        var relatedParams: [PostgresData] = []
         for entity in entities {
-            if let fkVal = extractUUID(from: entity, fieldName: foreignKey), seen.insert(fkVal).inserted {
-                relatedIds.append(fkVal)
+            if let fkVal = extractPrimaryKey(from: entity, fieldName: foreignKey),
+               seen.insert(fkVal).inserted,
+               let fkData = extractPrimaryKeyData(from: entity, fieldName: foreignKey) {
+                relatedParams.append(fkData)
             }
         }
-        guard !relatedIds.isEmpty else { return entities }
+        guard !relatedParams.isEmpty else { return entities }
 
         // Fetch related by primary key
         let relatedMeta = await SchemaRegistry.shared.register(Related.self)
@@ -361,18 +386,18 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let related: [Related] = try await batchFetch(
             relatedType: Related.self,
             whereColumn: relPK.snakeCase(),
-            inIds: relatedIds,
+            inParams: relatedParams,
             repo: repo
         )
 
-        var index: [UUID: Related] = [:]
+        var index: [AnyHashable: Related] = [:]
         for r in related {
-            if let id = extractUUID(from: r, fieldName: relPK) { index[id] = r }
+            if let id = extractPrimaryKey(from: r, fieldName: relPK) { index[id] = r }
         }
 
         return entities.map { entity in
             var e = entity
-            let fkVal = extractUUID(from: entity, fieldName: foreignKey)
+            let fkVal = extractPrimaryKey(from: entity, fieldName: foreignKey)
             let loaded: Related? = fkVal.flatMap { index[$0] }
             e[keyPath: keyPath] = SpectroLazyRelation(
                 loaded: loaded,
@@ -384,65 +409,94 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
     // MARK: - Shared Query Helper
 
-    /// Execute `SELECT * FROM table WHERE column IN (ids)`.
+    /// Execute `SELECT * FROM table WHERE column IN (params)`.
     /// The column name is already snake_cased at the call sites above.
+    /// Accepts pre-built `[PostgresData]` so callers can pass any PK type.
     private static func batchFetch<Related: Schema>(
         relatedType: Related.Type,
         whereColumn: String,
-        inIds: [UUID],
+        inParams: [PostgresData],
         repo: GenericDatabaseRepo
     ) async throws -> [Related] {
-        let placeholders = Array(repeating: "?", count: inIds.count).joined(separator: ", ")
-        let params = inIds.map { PostgresData(uuid: $0) }
+        let placeholders = Array(repeating: "?", count: inParams.count).joined(separator: ", ")
         let condition = QueryCondition(
             sql: "\"\(whereColumn)\" IN (\(placeholders))",
-            parameters: params
+            parameters: inParams
         )
         return try await repo.query(relatedType).where { _ in condition }.all()
     }
 
-    /// Execute `SELECT parentFK, relatedFK FROM junction WHERE parentFK IN (ids)`.
-    /// Returns an array of (parentId, relatedId) tuples from the junction table.
+    /// Execute `SELECT parentFK, relatedFK FROM junction WHERE parentFK IN (params)`.
+    /// Returns an array of (parentKey, relatedKey, relatedData) tuples from the junction table.
+    /// The third element carries the `PostgresData` for the related ID so callers can pass it
+    /// directly to `batchFetch` without lossy conversions.
     private static func batchFetchJunction(
         junctionTable: String,
         whereColumn: String,
         relatedColumn: String,
-        inIds: [UUID],
+        inParams: [PostgresData],
         repo: GenericDatabaseRepo
-    ) async throws -> [(UUID, UUID)] {
-        let placeholders = (1...inIds.count).map { "$\($0)" }.joined(separator: ", ")
+    ) async throws -> [(AnyHashable, AnyHashable, PostgresData)] {
+        let placeholders = (1...inParams.count).map { "$\($0)" }.joined(separator: ", ")
         let sql = """
             SELECT "\(whereColumn)", "\(relatedColumn)" FROM "\(junctionTable)" WHERE "\(whereColumn)" IN (\(placeholders))
             """
-        let params = inIds.map { PostgresData(uuid: $0) }
 
         let rows = try await repo.executeRawQuery(
             sql: sql,
-            parameters: params
+            parameters: inParams
         )
 
-        var result: [(UUID, UUID)] = []
+        var result: [(AnyHashable, AnyHashable, PostgresData)] = []
         for row in rows {
             let ra = row.makeRandomAccess()
-            if let parentId = ra[data: whereColumn].uuid,
-               let relatedId = ra[data: relatedColumn].uuid {
-                result.append((parentId, relatedId))
+            let parentData = ra[data: whereColumn]
+            let relatedData = ra[data: relatedColumn]
+            if let parentKey = anyHashableFromPostgresData(parentData),
+               let relatedKey = anyHashableFromPostgresData(relatedData) {
+                result.append((parentKey, relatedKey, relatedData))
             }
         }
         return result
     }
 
+    /// Extract an `AnyHashable` value from `PostgresData`, supporting UUID, Int, and String.
+    private static func anyHashableFromPostgresData(_ data: PostgresData) -> AnyHashable? {
+        if let v = data.uuid { return AnyHashable(v) }
+        if let v = data.int { return AnyHashable(v) }
+        if let v = data.string { return AnyHashable(v) }
+        return nil
+    }
+
     // MARK: - Helpers
 
-    /// Extract a UUID from any @ID, @ForeignKey, or bare UUID property by name.
-    static func extractUUID<S: Schema>(from entity: S, fieldName: String) -> UUID? {
+    /// Extract a primary key value from any @ID, @ForeignKey, or bare UUID/Int/String property by name.
+    /// Returns as `AnyHashable` for use as dictionary keys and `PostgresData` for query parameters.
+    static func extractPrimaryKey<S: Schema>(from entity: S, fieldName: String) -> AnyHashable? {
         for child in Mirror(reflecting: entity).children {
             guard let label = child.label else { continue }
             let name = label.hasPrefix("_") ? String(label.dropFirst()) : label
             guard name == fieldName else { continue }
-            if let v = child.value as? ID { return v.wrappedValue }
-            if let v = child.value as? ForeignKey { return v.wrappedValue }
-            if let v = child.value as? UUID { return v }
+            if let v = child.value as? any PrimaryKeyWrapperProtocol { return v.primaryKeyHashable }
+            if let v = child.value as? any ForeignKeyWrapperProtocol { return v.foreignKeyHashable }
+            if let v = child.value as? UUID { return AnyHashable(v) }
+            if let v = child.value as? Int { return AnyHashable(v) }
+            if let v = child.value as? String { return AnyHashable(v) }
+        }
+        return nil
+    }
+
+    /// Extract `PostgresData` from any @ID, @ForeignKey, or bare UUID/Int/String property by name.
+    static func extractPrimaryKeyData<S: Schema>(from entity: S, fieldName: String) -> PostgresData? {
+        for child in Mirror(reflecting: entity).children {
+            guard let label = child.label else { continue }
+            let name = label.hasPrefix("_") ? String(label.dropFirst()) : label
+            guard name == fieldName else { continue }
+            if let v = child.value as? any PrimaryKeyWrapperProtocol { return v.primaryKeyPostgresData }
+            if let v = child.value as? any ForeignKeyWrapperProtocol { return v.foreignKeyPostgresData }
+            if let v = child.value as? UUID { return PostgresData(uuid: v) }
+            if let v = child.value as? Int { return PostgresData(int: v) }
+            if let v = child.value as? String { return PostgresData(string: v) }
         }
         return nil
     }

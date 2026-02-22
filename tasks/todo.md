@@ -1,48 +1,46 @@
 # Spectro ORM - Current Sprint
 
-## Four Workstreams — COMPLETE
+## Schema DSL Improvements — COMPLETE
 
-### Workstream 1: Fix SpectroLazyRelation.load(using:)
-- [x] Add stored type-erased loader closure
-- [x] Add factory methods (hasManyLoader, hasOneLoader, belongsToLoader)
-- [ ] Update SchemaMacro to inject loader closures (deferred — separate workstream)
-- [x] Delete unused stub methods (loadHasMany, loadHasOne, loadBelongsTo, loadManyToMany)
-- [x] Add withLoader(_:) copy method for loader injection
-- [x] Rewrite load(using:) to use stored loader with proper state transitions
-- [x] Preserve loader in withLoaded(_:) copies
+### Phase 1: Column Name Overrides + FK Binding + Macro Refactor (backward compatible)
+- [x] Add `columnName: String?` to `Column<T>` and `ForeignKey` — `@Column("display_name")`
+- [x] Add `foreignKey: String?` to `HasMany<T>`, `HasOne<T>`, `BelongsTo<T>` — `@HasMany(foreignKey: "author_id")`
+- [x] SchemaMacro: extend PropertyInfo, parse wrapper args, dedup ExtensionMacro, update loader FK injection
+- [x] SchemaRegistry: `is` → `let as` pattern matching, add `Column<UUID>` case, use `columnName` override
+- [x] Tests: column override, FK override, Column<UUID> (8 new tests)
 
-### Workstream 2: Clean Up Dead Code
-- [x] Delete DatabaseRepo.swift
-- [x] Remove `extension DatabaseRepo` block from Query.swift
-- [x] Fix fromSync(row:) in SchemaBuilder.swift
+### Phase 2: Generic Primary Keys (breaking for code using bare `ID` type)
+- [x] `PrimaryKeyType` protocol with UUID/Int/String conformances
+- [x] `PrimaryKeyWrapperProtocol` + `ForeignKeyWrapperProtocol` marker protocols for reflection
+- [x] `ID<T: PrimaryKeyType>` and `ForeignKey<T: PrimaryKeyType>` — generic property wrappers
+- [x] Repo + GenericDatabaseRepo + Spectro: `id: UUID` → `id: some PrimaryKeyType`
+- [x] SpectroLazyRelation loaders: `parentId: UUID` → generic `PK: PrimaryKeyType`
+- [x] PreloadQuery: `extractUUID` → `extractPrimaryKey`/`extractPrimaryKeyData`, `[UUID:]` → `[AnyHashable:]`
+- [x] SchemaMacro: type-aware `defaultValueExpression`, type-aware `as?` casts in loaders
+- [x] SpectroError.notFound: `id: UUID` → `id: String`
+- [x] RelationshipLoader.loadBelongsTo: uses query instead of repo.get for PK-agnostic loading
+- [x] Tests: 7 unit + 13 integration for Int/String PKs (20 new tests)
 
-### Workstream 3: Upsert + Bulk Insert
-- [x] Create ConflictTarget type
-- [x] Add upsert/insertAll to Repo protocol
-- [x] Implement in GenericDatabaseRepo
-- [x] Add convenience facades in Spectro.swift
+### Review Fixes
+- [x] Fixed build(from:) dict key — always use prop.name (not columnName override) to match Schema.from(row:)
+- [x] Fixed BelongsTo loader injection to use foreignKeyOverride when present
+- [x] Fixed SQL injection in test helper (parameterized query)
 
-### Workstream 4: Aggregate Queries
-- [x] Add buildAggregateSQL helper to Query
-- [x] Add sum/avg/min/max terminal methods
+## Previous Work — COMPLETE
 
-### Phase 4: Tests
-- [x] Tests for upsert (3 tests)
-- [x] Tests for bulk insert (4 tests)
-- [x] Tests for aggregates (6 tests)
-- [x] Tests for lazy loading (11 tests: 5 unit + 6 integration)
+### Workstreams 1-4
+- [x] SpectroLazyRelation.load(using:) with stored loaders
+- [x] Dead code cleanup
+- [x] Upsert + Bulk Insert
+- [x] Aggregate Queries (sum/avg/min/max)
+- [x] @Schema macro auto-injects loader closures
 
-### Phase 5: Review
-- [x] Review agent audited all changes
-- [x] Fixed FK quoting in loader factories (use .quoted)
-- [x] Added empty set guard in upsert
-
-### SchemaMacro Loader Injection
-- [x] @Schema macro auto-injects loader closures in build(from:) for @HasMany, @HasOne, @BelongsTo
-- [x] Fix withLoader to reset loadState to .notLoaded (prevents stale cached defaults from init)
-- [x] Integration tests for auto-injected loaders (4 tests in MacroLoaderInjectionTests)
+### SpectroDemo (Hummingbird Blog API)
+- [x] Full REST API validated with curl (CRUD + preloading)
 
 ## Future Work
+- [ ] Support user-supplied primary keys in repo.insert() (currently excludes PK; String PKs need raw SQL)
+- [ ] Fix fromSync(row:) to respect @Column("custom_name") overrides
 - [ ] Test coverage for .constraint(...) conflict target
 - [ ] Type-safe aggregate API with QueryField overloads
 - [ ] Grouped aggregates (GROUP BY)

@@ -106,6 +106,50 @@ struct SchemaTests {
     }
 }
 
+@Suite("Phase 1D: Schema DSL Improvements")
+struct Phase1DSchemaTests {
+
+    @Test("@Column with custom name override sets databaseName")
+    func columnNameOverride() async {
+        let metadata = await SchemaRegistry.shared.register(TestColumnOverride.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        // "name" property was declared as @Column("display_name") var name: String
+        #expect(fieldMap["name"] != nil, "name field must be registered")
+        #expect(fieldMap["name"]?.databaseName == "display_name")
+        #expect(fieldMap["name"]?.fieldType == .string)
+
+        // "email" has no override — should use default snake_case
+        #expect(fieldMap["email"]?.databaseName == "email")
+    }
+
+    @Test("Non-optional Column<UUID> is registered by SchemaRegistry")
+    func columnUuidNotDropped() async {
+        let metadata = await SchemaRegistry.shared.register(TestWithUuidColumn.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        #expect(fieldMap["externalId"] != nil, "Column<UUID> must not be silently dropped")
+        #expect(fieldMap["externalId"]?.fieldType == .uuid)
+        #expect(fieldMap["externalId"]?.isPrimaryKey == false)
+        #expect(fieldMap["externalId"]?.isForeignKey == false)
+        #expect(fieldMap["externalId"]?.databaseName == "external_id")
+    }
+
+    @Test("Column<UUID> is distinct from @ID in SchemaRegistry metadata")
+    func columnUuidDistinctFromID() async {
+        let metadata = await SchemaRegistry.shared.register(TestWithUuidColumn.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        // @ID is the primary key
+        #expect(fieldMap["id"]?.isPrimaryKey == true)
+        #expect(fieldMap["id"]?.fieldType == .uuid)
+
+        // @Column var externalId: UUID is NOT a primary key
+        #expect(fieldMap["externalId"]?.isPrimaryKey == false)
+        #expect(fieldMap["externalId"]?.fieldType == .uuid)
+    }
+}
+
 @Suite("@Schema Macro")
 struct SchemaMacroTests {
 
@@ -194,6 +238,87 @@ struct SchemaMacroTests {
         #expect(fieldMap["bio"]?.isNullable == true)
         #expect(fieldMap["bio"]?.fieldType == .string)
         #expect(fieldMap["name"]?.isNullable == false)
+    }
+}
+
+@Suite("Phase 2: Non-UUID Primary Key Metadata")
+struct Phase2NonUUIDPrimaryKeyTests {
+
+    @Test("SchemaRegistry detects Int primary key with correct fieldType")
+    func intPrimaryKeyMetadata() async {
+        let metadata = await SchemaRegistry.shared.register(IntPKItem.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        #expect(metadata.tableName == "int_pk_items")
+        #expect(metadata.primaryKeyField == "id")
+
+        #expect(fieldMap["id"]?.fieldType == .int)
+        #expect(fieldMap["id"]?.isPrimaryKey == true)
+        #expect(fieldMap["id"]?.isForeignKey == false)
+
+        #expect(fieldMap["name"]?.fieldType == .string)
+        #expect(fieldMap["name"]?.isPrimaryKey == false)
+    }
+
+    @Test("SchemaRegistry detects String primary key with correct fieldType")
+    func stringPrimaryKeyMetadata() async {
+        let metadata = await SchemaRegistry.shared.register(StringPKItem.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        #expect(metadata.tableName == "string_pk_items")
+        #expect(metadata.primaryKeyField == "id")
+
+        #expect(fieldMap["id"]?.fieldType == .string)
+        #expect(fieldMap["id"]?.isPrimaryKey == true)
+        #expect(fieldMap["id"]?.isForeignKey == false)
+
+        #expect(fieldMap["name"]?.fieldType == .string)
+        #expect(fieldMap["name"]?.isPrimaryKey == false)
+    }
+
+    @Test("SchemaRegistry detects Int foreign key with correct fieldType")
+    func intForeignKeyMetadata() async {
+        let metadata = await SchemaRegistry.shared.register(IntFKChild.self)
+        let fieldMap = Dictionary(uniqueKeysWithValues: metadata.fields.map { ($0.name, $0) })
+
+        #expect(fieldMap["parentId"]?.fieldType == .int)
+        #expect(fieldMap["parentId"]?.isForeignKey == true)
+        #expect(fieldMap["parentId"]?.isPrimaryKey == false)
+        #expect(fieldMap["parentId"]?.databaseName == "parent_id")
+    }
+
+    @Test("Int PK SchemaBuilder.build populates fields from dictionary")
+    func intPKBuild() {
+        let item = IntPKItem.build(from: [
+            "id": 42,
+            "name": "Test Item",
+        ])
+        #expect(item.id == 42)
+        #expect(item.name == "Test Item")
+    }
+
+    @Test("String PK SchemaBuilder.build populates fields from dictionary")
+    func stringPKBuild() {
+        let item = StringPKItem.build(from: [
+            "id": "custom-slug",
+            "name": "Test Item",
+        ])
+        #expect(item.id == "custom-slug")
+        #expect(item.name == "Test Item")
+    }
+
+    @Test("Int PK default init uses correct defaults")
+    func intPKDefaultInit() {
+        let item = IntPKItem()
+        #expect(item.id == 0)
+        #expect(item.name == "")
+    }
+
+    @Test("String PK default init uses correct defaults")
+    func stringPKDefaultInit() {
+        let item = StringPKItem()
+        #expect(item.id == "")
+        #expect(item.name == "")
     }
 }
 

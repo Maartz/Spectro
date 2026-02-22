@@ -273,7 +273,7 @@ public struct Query<T: Schema>: Sendable {
 
     public func firstOrFail() async throws -> T {
         guard let result = try await first() else {
-            throw SpectroError.notFound(schema: T.tableName, id: UUID())
+            throw SpectroError.notFound(schema: T.tableName, id: "(query)")
         }
         return result
     }
@@ -503,7 +503,7 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
 
     public func firstOrFail() async throws -> Result {
         guard let result = try await first() else {
-            throw SpectroError.notFound(schema: T.tableName, id: UUID())
+            throw SpectroError.notFound(schema: T.tableName, id: "(query)")
         }
         return result
     }

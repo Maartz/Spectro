@@ -19,6 +19,8 @@ private struct PropertyInfo {
     let hasExplicitDefault: Bool
     let explicitDefault: String?
     let hasWrapperArguments: Bool  // Whether the @Wrapper has arguments, e.g. @ManyToMany(junctionTable: ...)
+    let columnName: String?        // from @Column("custom_name") — overrides snake_case convention
+    let foreignKeyOverride: String? // from @HasMany(foreignKey: "col") / @HasOne / @BelongsTo
 }
 
 private let columnAttributeNames: Set<String> = ["ID", "Column", "Timestamp", "ForeignKey"]
@@ -46,6 +48,46 @@ private func classifyWrapper(_ attrNames: [String]) -> WrapperKind? {
     return nil
 }
 
+/// Map a WrapperKind back to its attribute name string.
+private func wrapperAttributeName(_ kind: WrapperKind) -> String {
+    switch kind {
+    case .id:         return "ID"
+    case .column:     return "Column"
+    case .timestamp:  return "Timestamp"
+    case .foreignKey: return "ForeignKey"
+    case .hasMany:    return "HasMany"
+    case .hasOne:     return "HasOne"
+    case .belongsTo:  return "BelongsTo"
+    case .manyToMany: return "ManyToMany"
+    }
+}
+
+/// Extract a string literal from the first unlabeled argument of an attribute.
+/// E.g. `@Column("display_name")` → `"display_name"`
+private func extractUnlabeledStringArg(from attr: AttributeSyntax) -> String? {
+    guard let arguments = attr.arguments?.as(LabeledExprListSyntax.self),
+          let firstArg = arguments.first,
+          firstArg.label == nil,
+          let stringLiteral = firstArg.expression.as(StringLiteralExprSyntax.self),
+          let segment = stringLiteral.segments.first?.as(StringSegmentSyntax.self)
+    else { return nil }
+    return segment.content.text
+}
+
+/// Extract a string literal from a labeled argument of an attribute.
+/// E.g. `@HasMany(foreignKey: "author_id")` with label `"foreignKey"` → `"author_id"`
+private func extractLabeledStringArg(from attr: AttributeSyntax, label: String) -> String? {
+    guard let arguments = attr.arguments?.as(LabeledExprListSyntax.self) else { return nil }
+    for arg in arguments {
+        if arg.label?.text == label,
+           let stringLiteral = arg.expression.as(StringLiteralExprSyntax.self),
+           let segment = stringLiteral.segments.first?.as(StringSegmentSyntax.self) {
+            return segment.content.text
+        }
+    }
+    return nil
+}
+
 private func collectProperties(from structDecl: StructDeclSyntax) -> [PropertyInfo] {
     structDecl.memberBlock.members.compactMap { member in
         guard let varDecl = member.decl.as(VariableDeclSyntax.self),
@@ -64,11 +106,26 @@ private func collectProperties(from structDecl: StructDeclSyntax) -> [PropertyIn
 
         guard let wrapper = classifyWrapper(attrNames) else { return nil }
 
+        // Find the primary wrapper attribute node for argument extraction
+        let wrapperAttr = attrs.first { attr in
+            guard let name = attr.attributeName.as(IdentifierTypeSyntax.self)?.name.text else { return false }
+            return classifyWrapper([name]) == wrapper
+        }
+
         // Check if the wrapper attribute has explicit arguments (e.g. @ManyToMany(junctionTable: ...))
-        let hasWrapperArgs = attrs.contains { attr in
-            guard let name = attr.attributeName.as(IdentifierTypeSyntax.self)?.name.text,
-                  classifyWrapper([name]) == wrapper else { return false }
-            return attr.arguments != nil
+        let hasWrapperArgs = wrapperAttr?.arguments != nil
+
+        // Extract @Column("custom_name") — first unlabeled string argument
+        var columnName: String? = nil
+        if wrapper == .column, let attr = wrapperAttr {
+            columnName = extractUnlabeledStringArg(from: attr)
+        }
+
+        // Extract foreignKey override from @HasMany(foreignKey:), @HasOne(foreignKey:), @BelongsTo(foreignKey:)
+        var foreignKeyOverride: String? = nil
+        if (wrapper == .hasMany || wrapper == .hasOne || wrapper == .belongsTo),
+           let attr = wrapperAttr {
+            foreignKeyOverride = extractLabeledStringArg(from: attr, label: "foreignKey")
         }
 
         let isOptional = typeAnnotation.is(OptionalTypeSyntax.self)
@@ -87,7 +144,9 @@ private func collectProperties(from structDecl: StructDeclSyntax) -> [PropertyIn
             wrapper: wrapper,
             hasExplicitDefault: binding.initializer != nil,
             explicitDefault: binding.initializer?.value.trimmedDescription,
-            hasWrapperArguments: hasWrapperArgs
+            hasWrapperArguments: hasWrapperArgs,
+            columnName: columnName,
+            foreignKeyOverride: foreignKeyOverride
         )
     }
 }
@@ -104,9 +163,14 @@ private func extractTableName(from node: AttributeSyntax) -> String? {
 private func defaultValueExpression(for prop: PropertyInfo) -> String {
     if prop.isOptional { return "nil" }
     switch prop.wrapper {
-    case .id:                  return "UUID()"
+    case .id, .foreignKey:
+        switch prop.typeName {
+        case "UUID":   return "UUID()"
+        case "Int":    return "0"
+        case "String": return "\"\""
+        default:       return "\(prop.typeName)()"
+        }
     case .timestamp:           return "Date()"
-    case .foreignKey:          return "UUID()"
     case .hasMany, .manyToMany: return "[]"
     case .hasOne, .belongsTo:   return "nil"
     case .column:
@@ -205,7 +269,11 @@ extension SchemaMacro: MemberMacro {
         }
 
         // --- convenience init(column params...) ---
-        let columnProps = properties.filter { $0.wrapper == .column || $0.wrapper == .foreignKey }
+        // Exclude @Column properties with a columnName override — they are mapped
+        // to a custom DB column and should keep their default value, not be init params.
+        let columnProps = properties.filter {
+            ($0.wrapper == .column || $0.wrapper == .foreignKey) && $0.columnName == nil
+        }
         if !columnProps.isEmpty {
             var params: [String] = []
             for prop in columnProps {
@@ -216,13 +284,19 @@ extension SchemaMacro: MemberMacro {
                 }
             }
 
-            // Skip @ManyToMany properties with wrapper arguments in convenience init too
+            // Skip @ManyToMany properties with wrapper arguments in convenience init too —
+            // they get their default from the wrapper declaration.
             let convInitProps = properties.filter {
                 !($0.wrapper == .manyToMany && $0.hasWrapperArguments)
             }
             let assignments = convInitProps.map { prop in
+                // @Column properties with columnName override are not init parameters,
+                // so they get a default value instead of being assigned from a parameter.
+                if prop.wrapper == .column && prop.columnName != nil {
+                    return "self.\(prop.name) = \(defaultValueExpression(for: prop))"
+                }
                 switch prop.wrapper {
-                case .id:                  return "self.\(prop.name) = UUID()"
+                case .id:                  return "self.\(prop.name) = \(defaultValueExpression(for: prop))"
                 case .timestamp:           return "self.\(prop.name) = Date()"
                 case .column, .foreignKey: return "self.\(prop.name) = \(prop.name)"
                 case .hasMany, .manyToMany: return "self.\(prop.name) = []"
@@ -257,69 +331,53 @@ extension SchemaMacro: ExtensionMacro {
         guard let structDecl = declaration.as(StructDeclSyntax.self) else { return [] }
 
         let typeName = structDecl.name.text
+        let allProps = collectProperties(from: structDecl)
         var assignments: [String] = []
 
-        for member in structDecl.memberBlock.members {
-            guard let varDecl = member.decl.as(VariableDeclSyntax.self),
-                  varDecl.bindingSpecifier.text == "var"
-            else { continue }
+        // Column-attribute properties: @ID, @Column, @Timestamp, @ForeignKey
+        for prop in allProps where columnAttributeNames.contains(wrapperAttributeName(prop.wrapper)) {
+            // Always use the Swift property name as the dict key.
+            // Schema.from(row:) populates the dict keyed by property name, not database column name.
+            let dictKey = prop.name
 
-            let attrNames: [String] = varDecl.attributes.compactMap {
-                $0.as(AttributeSyntax.self)?
-                    .attributeName
-                    .as(IdentifierTypeSyntax.self)?
-                    .name.text
-            }
-            guard attrNames.contains(where: { columnAttributeNames.contains($0) }) else { continue }
-
-            guard let binding = varDecl.bindings.first,
-                  let pattern = binding.pattern.as(IdentifierPatternSyntax.self),
-                  let typeSyntax = binding.typeAnnotation?.type
-            else { continue }
-
-            let propName = pattern.identifier.text
-            let isOptional = typeSyntax.is(OptionalTypeSyntax.self)
-            let baseType: String
-            if let optType = typeSyntax.as(OptionalTypeSyntax.self) {
-                baseType = optType.wrappedType.trimmedDescription
-            } else {
-                baseType = typeSyntax.trimmedDescription
-            }
-
-            if isOptional {
+            if prop.isOptional {
                 assignments.append(
-                    "instance.\(propName) = values[\"\(propName)\"] as? \(baseType)"
+                    "instance.\(prop.name) = values[\"\(dictKey)\"] as? \(prop.typeName)"
                 )
             } else {
                 assignments.append(
-                    "if let __v = values[\"\(propName)\"] as? \(baseType) { instance.\(propName) = __v }"
+                    "if let __v = values[\"\(dictKey)\"] as? \(prop.typeName) { instance.\(prop.name) = __v }"
                 )
             }
         }
 
         // Relationship loader injection
-        let allProps = collectProperties(from: structDecl)
         let idProp = allProps.first(where: { $0.wrapper == .id })
 
         if let idProp = idProp {
-            let parentFK = toSnakeCase(typeName) + "_id"
+            let conventionFK = toSnakeCase(typeName) + "_id"
+            let idType = idProp.typeName
 
             for prop in allProps {
                 switch prop.wrapper {
                 case .hasMany:
+                    let fk = prop.foreignKeyOverride ?? conventionFK
                     let elementType = String(prop.typeName.dropFirst().dropLast())
                     assignments.append(
-                        "if let __parentId = values[\"\(idProp.name)\"] as? UUID { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<[\(elementType)]>.hasManyLoader(parentId: __parentId, foreignKey: \"\(parentFK)\")) }"
+                        "if let __parentId = values[\"\(idProp.name)\"] as? \(idType) { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<[\(elementType)]>.hasManyLoader(parentId: __parentId, foreignKey: \"\(fk)\")) }"
                     )
                 case .hasOne:
+                    let fk = prop.foreignKeyOverride ?? conventionFK
                     assignments.append(
-                        "if let __parentId = values[\"\(idProp.name)\"] as? UUID { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<\(prop.typeName)?>.hasOneLoader(parentId: __parentId, foreignKey: \"\(parentFK)\")) }"
+                        "if let __parentId = values[\"\(idProp.name)\"] as? \(idType) { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<\(prop.typeName)?>.hasOneLoader(parentId: __parentId, foreignKey: \"\(fk)\")) }"
                     )
                 case .belongsTo:
-                    let fkPropName = "\(prop.name)Id"
-                    if allProps.contains(where: { $0.wrapper == .foreignKey && $0.name == fkPropName }) {
+                    // Use foreignKeyOverride if specified, otherwise convention: <propName>Id
+                    let fkPropName = prop.foreignKeyOverride ?? "\(prop.name)Id"
+                    if let fkProp = allProps.first(where: { $0.wrapper == .foreignKey && $0.name == fkPropName }) {
+                        let fkType = fkProp.typeName
                         assignments.append(
-                            "if let __fk = values[\"\(fkPropName)\"] as? UUID { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<\(prop.typeName)?>.belongsToLoader(foreignKeyValue: __fk)) }"
+                            "if let __fk = values[\"\(fkPropName)\"] as? \(fkType) { instance.$\(prop.name) = instance.$\(prop.name).withLoader(SpectroLazyRelation<\(prop.typeName)?>.belongsToLoader(foreignKeyValue: __fk)) }"
                         )
                     }
                 default:

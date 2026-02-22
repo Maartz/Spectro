@@ -17,7 +17,7 @@ public enum SpectroError: Error, Sendable {
     case resultDecodingFailed(column: String, expectedType: String)
 
     // MARK: - Data
-    case notFound(schema: String, id: UUID)
+    case notFound(schema: String, id: String)
     case unexpectedResultCount(expected: Int, actual: Int)
     /// `value` is the pre-formatted string description of the invalid field value.
     case invalidData(field: String, value: String?, reason: String)

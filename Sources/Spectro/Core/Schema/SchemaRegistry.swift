@@ -91,65 +91,68 @@ public actor SchemaRegistry {
 
     private func extractFieldInfo(label: String, value: Any) -> FieldInfo? {
         let fieldName = label.hasPrefix("_") ? String(label.dropFirst()) : label
-        let databaseName = fieldName.snakeCase()
+        let defaultDBName = fieldName.snakeCase()
 
         switch value {
-        case is ID:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .uuid,
+        case let pk as any PrimaryKeyWrapperProtocol:
+            return FieldInfo(name: fieldName, databaseName: defaultDBName, fieldType: pk.primaryKeyFieldType,
                              isPrimaryKey: true, isForeignKey: false, isTimestamp: false, isNullable: false)
 
-        case is Column<String>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .string,
+        case let col as Column<String>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .string,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
-        case is Column<String?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .string,
+        case let col as Column<String?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .string,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
-        case is Column<Int>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .int,
+        case let col as Column<Int>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .int,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
-        case is Column<Int?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .int,
+        case let col as Column<Int?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .int,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
-        case is Column<Bool>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .bool,
+        case let col as Column<Bool>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .bool,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
-        case is Column<Bool?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .bool,
+        case let col as Column<Bool?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .bool,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
-        case is Column<Double>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .double,
+        case let col as Column<Double>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .double,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
-        case is Column<Double?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .double,
+        case let col as Column<Double?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .double,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
-        case is Column<Float>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .float,
+        case let col as Column<Float>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .float,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
-        case is Column<Float?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .float,
+        case let col as Column<Float?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .float,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
-        case is Column<Date>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .date,
+        case let col as Column<Date>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .date,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
-        case is Column<Date?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .date,
+        case let col as Column<Date?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .date,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
-        case is Column<UUID?>:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .uuid,
+        case let col as Column<UUID>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .uuid,
+                             isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: false)
+        case let col as Column<UUID?>:
+            return FieldInfo(name: fieldName, databaseName: col.columnName ?? defaultDBName, fieldType: .uuid,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: false, isNullable: true)
 
         case is Timestamp:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .date,
+            return FieldInfo(name: fieldName, databaseName: defaultDBName, fieldType: .date,
                              isPrimaryKey: false, isForeignKey: false, isTimestamp: true, isNullable: false)
 
-        case is ForeignKey:
-            return FieldInfo(name: fieldName, databaseName: databaseName, fieldType: .uuid,
+        case let col as any ForeignKeyWrapperProtocol:
+            return FieldInfo(name: fieldName, databaseName: col.foreignKeyColumnName ?? defaultDBName, fieldType: col.foreignKeyFieldType,
                              isPrimaryKey: false, isForeignKey: true, isTimestamp: false, isNullable: false)
 
         default:

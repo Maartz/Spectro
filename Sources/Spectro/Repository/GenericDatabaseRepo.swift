@@ -40,7 +40,7 @@ public actor GenericDatabaseRepo: Repo {
 
     // MARK: - CRUD
 
-    public func get<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T? {
+    public func get<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws -> T? {
         let metadata = await SchemaRegistry.shared.register(schema)
 
         guard let primaryKey = metadata.primaryKeyField else {
@@ -51,7 +51,7 @@ public actor GenericDatabaseRepo: Repo {
 
         let rows = try await connection.executeQuery(
             sql: sql,
-            parameters: [PostgresData(uuid: id)],
+            parameters: [id.toPostgresData()],
             resultMapper: { $0 }
         )
 
@@ -212,7 +212,7 @@ public actor GenericDatabaseRepo: Repo {
         return allResults
     }
 
-    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: any Sendable]) async throws -> T {
+    public func update<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType, changes: [String: any Sendable]) async throws -> T {
         let metadata = await SchemaRegistry.shared.register(schema)
 
         guard let primaryKey = metadata.primaryKeyField else {
@@ -229,7 +229,7 @@ public actor GenericDatabaseRepo: Repo {
             paramIndex += 1
         }
 
-        values.append(PostgresData(uuid: id))
+        values.append(id.toPostgresData())
 
         let sql = """
             UPDATE \(metadata.tableName.quoted)
@@ -251,14 +251,14 @@ public actor GenericDatabaseRepo: Repo {
         return try await mapRowToSchema(row, schema: schema)
     }
 
-    public func getOrFail<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T {
+    public func getOrFail<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws -> T {
         guard let result = try await get(schema, id: id) else {
-            throw SpectroError.notFound(schema: schema.tableName, id: id)
+            throw SpectroError.notFound(schema: schema.tableName, id: String(describing: id))
         }
         return result
     }
 
-    public func delete<T: Schema>(_ schema: T.Type, id: UUID) async throws {
+    public func delete<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws {
         let metadata = await SchemaRegistry.shared.register(schema)
 
         guard let primaryKey = metadata.primaryKeyField else {
@@ -266,7 +266,7 @@ public actor GenericDatabaseRepo: Repo {
         }
 
         let sql = "DELETE FROM \(metadata.tableName.quoted) WHERE \(primaryKey.snakeCase().quoted) = $1"
-        try await connection.executeUpdate(sql: sql, parameters: [PostgresData(uuid: id)])
+        try await connection.executeUpdate(sql: sql, parameters: [id.toPostgresData()])
     }
 
     public func transaction<T: Sendable>(_ work: @escaping @Sendable (Repo) async throws -> T) async throws -> T {

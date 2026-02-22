@@ -98,6 +98,39 @@ struct RelationshipTests {
         #expect(wrapper.wrappedValue == nil)
     }
 
+    // MARK: - Foreign Key Override
+
+    @Test("HasMany stores custom foreignKey")
+    func hasManyForeignKeyOverride() {
+        let wrapper = HasMany<TestPost>(wrappedValue: [], foreignKey: "author_id")
+        #expect(wrapper.foreignKey == "author_id")
+    }
+
+    @Test("HasMany without foreignKey defaults to nil")
+    func hasManyForeignKeyDefault() {
+        let wrapper = HasMany<TestPost>()
+        #expect(wrapper.foreignKey == nil)
+    }
+
+    @Test("HasOne stores custom foreignKey")
+    func hasOneForeignKeyOverride() {
+        let wrapper = HasOne<TestPost>(foreignKey: "author_id")
+        #expect(wrapper.foreignKey == "author_id")
+    }
+
+    @Test("BelongsTo stores custom foreignKey")
+    func belongsToForeignKeyOverride() {
+        let wrapper = BelongsTo<TestUser>(foreignKey: "writer_id")
+        #expect(wrapper.foreignKey == "writer_id")
+    }
+
+    @Test("HasMany foreignKey propagates to relationshipInfo")
+    func hasManyForeignKeyInRelationshipInfo() {
+        let wrapper = HasMany<TestPost>(wrappedValue: [], foreignKey: "author_id")
+        #expect(wrapper.projectedValue.relationshipInfo.foreignKey == "author_id")
+        #expect(wrapper.projectedValue.relationshipInfo.kind == .hasMany)
+    }
+
     // MARK: - Conventional FK
 
     @Test("Conventional foreign key derivation")

@@ -56,7 +56,7 @@ extension Spectro {
         try await repository().transaction(work)
     }
 
-    public func get<T: Schema>(_ schema: T.Type, id: UUID) async throws -> T? {
+    public func get<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws -> T? {
         try await repository().get(schema, id: id)
     }
 
@@ -76,11 +76,11 @@ extension Spectro {
         try await repository().insertAll(instances)
     }
 
-    public func update<T: Schema>(_ schema: T.Type, id: UUID, changes: [String: any Sendable]) async throws -> T {
+    public func update<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType, changes: [String: any Sendable]) async throws -> T {
         try await repository().update(schema, id: id, changes: changes)
     }
 
-    public func delete<T: Schema>(_ schema: T.Type, id: UUID) async throws {
+    public func delete<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws {
         try await repository().delete(schema, id: id)
     }
 }

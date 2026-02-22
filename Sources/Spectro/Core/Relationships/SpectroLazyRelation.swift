@@ -169,17 +169,17 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
     /// The loader executes: `SELECT * FROM <Child.tableName> WHERE <foreignKey> = <parentId>`
     ///
     /// - Parameters:
-    ///   - parentId: The parent entity's primary key value.
+    ///   - parentId: The parent entity's primary key value (any `PrimaryKeyType`: UUID, Int, String, etc.).
     ///   - foreignKey: The column on the child table that references the parent (already snake_cased).
     /// - Returns: A `@Sendable` closure suitable for `withLoader(_:)`.
-    public static func hasManyLoader<Child: Schema>(
-        parentId: UUID,
+    public static func hasManyLoader<Child: Schema, PK: PrimaryKeyType>(
+        parentId: PK,
         foreignKey: String
     ) -> @Sendable (GenericDatabaseRepo) async throws -> [Child] where T == [Child] {
         return { repo in
             let condition = QueryCondition(
                 sql: "\(foreignKey.quoted) = ?",
-                parameters: [PostgresData(uuid: parentId)]
+                parameters: [parentId.toPostgresData()]
             )
             return try await repo.query(Child.self).where { _ in condition }.all()
         }
@@ -190,17 +190,17 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
     /// The loader executes: `SELECT * FROM <Child.tableName> WHERE <foreignKey> = <parentId> LIMIT 1`
     ///
     /// - Parameters:
-    ///   - parentId: The parent entity's primary key value.
+    ///   - parentId: The parent entity's primary key value (any `PrimaryKeyType`: UUID, Int, String, etc.).
     ///   - foreignKey: The column on the child table that references the parent (already snake_cased).
     /// - Returns: A `@Sendable` closure suitable for `withLoader(_:)`.
-    public static func hasOneLoader<Child: Schema>(
-        parentId: UUID,
+    public static func hasOneLoader<Child: Schema, PK: PrimaryKeyType>(
+        parentId: PK,
         foreignKey: String
     ) -> @Sendable (GenericDatabaseRepo) async throws -> Child? where T == Child? {
         return { repo in
             let condition = QueryCondition(
                 sql: "\(foreignKey.quoted) = ?",
-                parameters: [PostgresData(uuid: parentId)]
+                parameters: [parentId.toPostgresData()]
             )
             return try await repo.query(Child.self).where { _ in condition }.first()
         }
@@ -211,10 +211,10 @@ public struct SpectroLazyRelation<T: Sendable>: Sendable {
     /// The loader executes: `SELECT * FROM <Parent.tableName> WHERE id = <foreignKeyValue> LIMIT 1`
     ///
     /// - Parameters:
-    ///   - foreignKeyValue: The FK value stored on the child entity, pointing to the parent's PK.
+    ///   - foreignKeyValue: The FK value stored on the child entity, pointing to the parent's PK (any `PrimaryKeyType`).
     /// - Returns: A `@Sendable` closure suitable for `withLoader(_:)`.
-    public static func belongsToLoader<Parent: Schema>(
-        foreignKeyValue: UUID
+    public static func belongsToLoader<Parent: Schema, PK: PrimaryKeyType>(
+        foreignKeyValue: PK
     ) -> @Sendable (GenericDatabaseRepo) async throws -> Parent? where T == Parent? {
         return { repo in
             try await repo.get(Parent.self, id: foreignKeyValue)

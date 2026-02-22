@@ -187,9 +187,16 @@ DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, TEST_DB_NAME
 
 ### Schema System
 - `Schema` protocol requires `tableName: String` and `init()` (`Sources/Spectro/Core/Protocols/Schema.swift`)
+- `PrimaryKeyType` protocol (`Sources/Spectro/Core/Protocols/PrimaryKeyType.swift`) — UUID, Int, String conformances; provides `toPostgresData()`, `fromPostgresData()`, `defaultValue`, `fieldType`
+- `PrimaryKeyWrapperProtocol` / `ForeignKeyWrapperProtocol` — marker protocols for Mirror-based type checking of generic `ID<T>` and `ForeignKey<T>`
 - `SchemaBuilder` adds `static func build(from: [String: Any]) -> Self` for reflection-free row mapping
 - `SchemaMapper` converts `PostgresRow` to Swift structs
-- Property wrappers in `Sources/Spectro/SchemaBuilder/PropertyWrappers.swift`: `@ID`, `@Column<T>`, `@Timestamp`, `@ForeignKey`, `@HasMany<T>`, `@HasOne<T>`, `@BelongsTo<T>`
+- Property wrappers in `Sources/Spectro/SchemaBuilder/PropertyWrappers.swift`:
+  - `@ID<T: PrimaryKeyType>` — generic primary key (UUID, Int, String)
+  - `@Column<T>` — with optional column name override: `@Column("display_name")`
+  - `@Timestamp`, `@ForeignKey<T: PrimaryKeyType>` — with optional column name override
+  - `@HasMany<T>`, `@HasOne<T>`, `@BelongsTo<T>` — with optional FK binding: `@HasMany(foreignKey: "author_id")`
+  - `@ManyToMany<T>` — junction table relationships
 - `SpectroLazyRelation<T>` backs all relationship wrappers with a state machine: `notLoaded → loading → loaded(T)`
 
 ### Query Builder

@@ -1,17 +1,34 @@
 import Foundation
+import PostgresKit
 
 // MARK: - Column Wrappers
 
 @propertyWrapper
 public struct Column<T: Sendable>: Sendable {
     public var wrappedValue: T
-    public init(wrappedValue: T) { self.wrappedValue = wrappedValue }
+    public let columnName: String?
+
+    public init(wrappedValue: T) {
+        self.wrappedValue = wrappedValue
+        self.columnName = nil
+    }
+
+    public init(wrappedValue: T, _ columnName: String) {
+        self.wrappedValue = wrappedValue
+        self.columnName = columnName
+    }
 }
 
 @propertyWrapper
-public struct ID: Sendable {
-    public var wrappedValue: UUID
-    public init(wrappedValue: UUID = UUID()) { self.wrappedValue = wrappedValue }
+public struct ID<T: PrimaryKeyType>: Sendable, PrimaryKeyWrapperProtocol {
+    public var wrappedValue: T
+
+    public init(wrappedValue: T = T.defaultValue) { self.wrappedValue = wrappedValue }
+
+    // MARK: - PrimaryKeyWrapperProtocol
+    public var primaryKeyPostgresData: PostgresData { wrappedValue.toPostgresData() }
+    public var primaryKeyFieldType: FieldType { T.fieldType }
+    public var primaryKeyHashable: AnyHashable { AnyHashable(wrappedValue) }
 }
 
 @propertyWrapper
@@ -21,9 +38,25 @@ public struct Timestamp: Sendable {
 }
 
 @propertyWrapper
-public struct ForeignKey: Sendable {
-    public var wrappedValue: UUID
-    public init(wrappedValue: UUID = UUID()) { self.wrappedValue = wrappedValue }
+public struct ForeignKey<T: PrimaryKeyType>: Sendable, ForeignKeyWrapperProtocol {
+    public var wrappedValue: T
+    public let columnName: String?
+
+    public init(wrappedValue: T = T.defaultValue) {
+        self.wrappedValue = wrappedValue
+        self.columnName = nil
+    }
+
+    public init(wrappedValue: T = T.defaultValue, _ columnName: String) {
+        self.wrappedValue = wrappedValue
+        self.columnName = columnName
+    }
+
+    // MARK: - ForeignKeyWrapperProtocol
+    public var foreignKeyPostgresData: PostgresData { wrappedValue.toPostgresData() }
+    public var foreignKeyFieldType: FieldType { T.fieldType }
+    public var foreignKeyHashable: AnyHashable { AnyHashable(wrappedValue) }
+    public var foreignKeyColumnName: String? { columnName }
 }
 
 // MARK: - Relationship Wrappers
@@ -35,6 +68,7 @@ public struct ForeignKey: Sendable {
 @propertyWrapper
 public struct HasMany<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<[T]>
+    public let foreignKey: String?
 
     /// The loaded array, or empty if the relationship has not been loaded.
     public var wrappedValue: [T] {
@@ -52,6 +86,7 @@ public struct HasMany<T: Schema>: Sendable {
     }
 
     public init(wrappedValue: [T] = []) {
+        self.foreignKey = nil
         self.lazyRelation = SpectroLazyRelation<[T]>(relationshipInfo: RelationshipInfo(
             name: "",
             relatedTypeName: String(describing: T.self),
@@ -60,7 +95,18 @@ public struct HasMany<T: Schema>: Sendable {
         ))
     }
 
+    public init(wrappedValue: [T] = [], foreignKey: String) {
+        self.foreignKey = foreignKey
+        self.lazyRelation = SpectroLazyRelation<[T]>(relationshipInfo: RelationshipInfo(
+            name: "",
+            relatedTypeName: String(describing: T.self),
+            kind: .hasMany,
+            foreignKey: foreignKey
+        ))
+    }
+
     public init(relationshipInfo: RelationshipInfo) {
+        self.foreignKey = relationshipInfo.foreignKey
         self.lazyRelation = SpectroLazyRelation<[T]>(relationshipInfo: relationshipInfo)
     }
 }
@@ -68,6 +114,7 @@ public struct HasMany<T: Schema>: Sendable {
 @propertyWrapper
 public struct HasOne<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<T?>
+    public let foreignKey: String?
 
     public var wrappedValue: T? {
         get { lazyRelation.value ?? nil }
@@ -80,6 +127,7 @@ public struct HasOne<T: Schema>: Sendable {
     }
 
     public init(wrappedValue: T? = nil) {
+        self.foreignKey = nil
         self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: RelationshipInfo(
             name: "",
             relatedTypeName: String(describing: T.self),
@@ -88,7 +136,18 @@ public struct HasOne<T: Schema>: Sendable {
         ))
     }
 
+    public init(wrappedValue: T? = nil, foreignKey: String) {
+        self.foreignKey = foreignKey
+        self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: RelationshipInfo(
+            name: "",
+            relatedTypeName: String(describing: T.self),
+            kind: .hasOne,
+            foreignKey: foreignKey
+        ))
+    }
+
     public init(relationshipInfo: RelationshipInfo) {
+        self.foreignKey = relationshipInfo.foreignKey
         self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: relationshipInfo)
     }
 }
@@ -96,6 +155,7 @@ public struct HasOne<T: Schema>: Sendable {
 @propertyWrapper
 public struct BelongsTo<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<T?>
+    public let foreignKey: String?
 
     public var wrappedValue: T? {
         get { lazyRelation.value ?? nil }
@@ -108,6 +168,7 @@ public struct BelongsTo<T: Schema>: Sendable {
     }
 
     public init(wrappedValue: T? = nil) {
+        self.foreignKey = nil
         self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: RelationshipInfo(
             name: "",
             relatedTypeName: String(describing: T.self),
@@ -116,7 +177,18 @@ public struct BelongsTo<T: Schema>: Sendable {
         ))
     }
 
+    public init(wrappedValue: T? = nil, foreignKey: String) {
+        self.foreignKey = foreignKey
+        self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: RelationshipInfo(
+            name: "",
+            relatedTypeName: String(describing: T.self),
+            kind: .belongsTo,
+            foreignKey: foreignKey
+        ))
+    }
+
     public init(relationshipInfo: RelationshipInfo) {
+        self.foreignKey = relationshipInfo.foreignKey
         self.lazyRelation = SpectroLazyRelation<T?>(relationshipInfo: relationshipInfo)
     }
 }

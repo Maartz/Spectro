@@ -24,6 +24,25 @@
 ## Macro-Generated Code
 - withLoader must reset loadState to .notLoaded, not preserve it. The @Schema macro init does `self.posts = []` which sets the relation to `.loaded([])`. If withLoader preserves that state, `load(using:)` short-circuits and returns the stale empty value, never calling the loader. Always reset to .notLoaded when attaching a new loader.
 - The @Schema macro generates loader injection in build(from:) for relationships: hasManyLoader for @HasMany, hasOneLoader for @HasOne, belongsToLoader for @BelongsTo. These are auto-attached when entities are built from database rows.
+- When generating code for @ID or @ForeignKey properties, always use `prop.typeName` (from `PropertyInfo`) rather than hardcoding "UUID". The `defaultValueExpression(for:)` helper handles mapping type names to default values (UUID() for UUID, 0 for Int, "" for String). Similarly, `as?` casts in loader injection must use the actual PK/FK type from the property declaration.
+- In `build(from:)` generation, always use the Swift property name (`prop.name`) as the dictionary key, NOT the column name override. `Schema.from(row:)` populates the dict keyed by property name, not database column name. Mismatching these causes silent data loss.
+
+## Generic Types and Reflection
+- When making a property wrapper generic (e.g., `ID` → `ID<T>`), `is ID` pattern matching in Mirror-based code breaks. Use marker protocols (`PrimaryKeyWrapperProtocol`, `ForeignKeyWrapperProtocol`) with `case let v as any ProtocolName:` for runtime type checking.
+- `some PrimaryKeyType` (opaque types) cannot be used in static method return types that are closures. Use explicit generic parameters `<PK: PrimaryKeyType>` instead.
+- `repo.insert()` always excludes the PK (`excludePrimaryKey: true`). This works for server-generated PKs (UUID defaults, SERIAL) but drops user-supplied String/Int PKs. Use raw parameterized SQL for user-supplied PKs until this is addressed.
+
+## Migrations
+- MigrationManager uses epoch seconds (not YYYYMMDDHHMMSS) for timestamps. Files named `<epoch>_<name>.sql`. The CLI generates these with `Int(Date().timeIntervalSince1970)`.
+- MigrationManager discovers files relative to CWD at `Sources/Migrations/`. App must be run from the project root.
+- The `discoverMigrations()` guard validates `Double(timestamp) < epochNow + 100years`, so YYYYMMDDHHMMSS values (~2e13) silently fail.
+
+## Hummingbird 2.x Integration
+- Model files need `import Foundation` for UUID/Date since Spectro doesn't re-export it
+- `app.runService()` is the correct entry point (not `app.run()`)
+- Always `defer { Task { await spectro.shutdown() } }` for connection pool cleanup
+- `ResponseCodable` (from Hummingbird) makes structs JSON-encodable as responses
+- Route params: `context.parameters.require("id", as: UUID.self)`
 
 ## SQL Generation
 - PostgreSQL SUM/MIN/MAX on INTEGER returns BIGINT, not DOUBLE — use CAST(... AS DOUBLE PRECISION) for aggregate results
