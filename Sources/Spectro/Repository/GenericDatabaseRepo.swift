@@ -71,9 +71,9 @@ public actor GenericDatabaseRepo: Repo {
         return results
     }
 
-    public func insert<T: Schema>(_ instance: T) async throws -> T {
+    public func insert<T: Schema>(_ instance: T, includePrimaryKey: Bool = false) async throws -> T {
         let metadata = await SchemaRegistry.shared.register(T.self)
-        let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: true)
+        let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: !includePrimaryKey)
 
         let columns = data.keys.map { $0.quoted }.joined(separator: ", ")
         let placeholders = (1...data.count).map { "$\($0)" }.joined(separator: ", ")
@@ -98,9 +98,9 @@ public actor GenericDatabaseRepo: Repo {
         return try await mapRowToSchema(row, schema: T.self)
     }
 
-    public func upsert<T: Schema>(_ instance: T, conflictTarget: ConflictTarget, set: [String]?) async throws -> T {
+    public func upsert<T: Schema>(_ instance: T, conflictTarget: ConflictTarget, set: [String]?, includePrimaryKey: Bool = false) async throws -> T {
         let metadata = await SchemaRegistry.shared.register(T.self)
-        let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: true)
+        let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: !includePrimaryKey)
 
         let columns = data.keys.map { $0.quoted }.joined(separator: ", ")
         let placeholders = (1...data.count).map { "$\($0)" }.joined(separator: ", ")
@@ -152,13 +152,13 @@ public actor GenericDatabaseRepo: Repo {
         return try await mapRowToSchema(row, schema: T.self)
     }
 
-    public func insertAll<T: Schema>(_ instances: [T]) async throws -> [T] {
+    public func insertAll<T: Schema>(_ instances: [T], includePrimaryKey: Bool = false) async throws -> [T] {
         guard !instances.isEmpty else { return [] }
 
         let metadata = await SchemaRegistry.shared.register(T.self)
 
         // Extract data from the first instance to determine column order
-        let firstData = SchemaMapper.extractData(from: instances[0], metadata: metadata, excludePrimaryKey: true)
+        let firstData = SchemaMapper.extractData(from: instances[0], metadata: metadata, excludePrimaryKey: !includePrimaryKey)
         let columnNames = Array(firstData.keys)
         let columns = columnNames.map { $0.quoted }.joined(separator: ", ")
         let columnsPerRow = columnNames.count
@@ -176,7 +176,7 @@ public actor GenericDatabaseRepo: Repo {
             var paramIndex = 1
 
             for instance in batch {
-                let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: true)
+                let data = SchemaMapper.extractData(from: instance, metadata: metadata, excludePrimaryKey: !includePrimaryKey)
                 let placeholders = (paramIndex..<(paramIndex + columnsPerRow)).map { "$\($0)" }.joined(separator: ", ")
                 valueTuples.append("(\(placeholders))")
 

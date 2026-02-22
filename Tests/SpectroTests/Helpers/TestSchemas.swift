@@ -146,6 +146,11 @@ struct IntPKItem: Schema, SchemaBuilder {
         self.name = ""
     }
 
+    init(id: Int, name: String) {
+        self.id = id
+        self.name = name
+    }
+
     init(name: String) {
         self.id = 0
         self.name = name

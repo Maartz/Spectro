@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import PostgresKit
 @testable import Spectro
 
 extension DatabaseIntegrationTests {
@@ -12,13 +11,13 @@ struct NonUUIDPrimaryKeyTests {
     private func withIntPKTable(_ body: (GenericDatabaseRepo) async throws -> Void) async throws {
         let spectro = try TestDatabase.makeSpectro()
         let repo = spectro.repository()
+        try await repo.executeRawSQL("DROP TABLE IF EXISTS \"int_pk_items\"")
         try await repo.executeRawSQL("""
-            CREATE TABLE IF NOT EXISTS "int_pk_items" (
+            CREATE TABLE "int_pk_items" (
                 "id" SERIAL PRIMARY KEY,
                 "name" TEXT NOT NULL DEFAULT ''
             )
         """)
-        try await repo.executeRawSQL("TRUNCATE \"int_pk_items\" RESTART IDENTITY")
         do {
             try await body(repo)
         } catch {
@@ -47,14 +46,6 @@ struct NonUUIDPrimaryKeyTests {
             throw error
         }
         await spectro.shutdown()
-    }
-
-    /// Insert a string PK row via parameterized SQL (since repo.insert excludes the PK by design).
-    private func insertStringPKRow(repo: GenericDatabaseRepo, id: String, name: String) async throws {
-        _ = try await repo.executeRawQuery(
-            sql: "INSERT INTO \"string_pk_items\" (\"id\", \"name\") VALUES ($1, $2)",
-            parameters: [PostgresData(string: id), PostgresData(string: name)]
-        )
     }
 
     // MARK: - Int PK CRUD Tests
@@ -149,15 +140,15 @@ struct NonUUIDPrimaryKeyTests {
     }
 
     // MARK: - String PK CRUD Tests
-    //
-    // Note: repo.insert() always excludes the primary key (designed for server-generated
-    // PKs like UUID/SERIAL). For user-supplied String PKs, we seed data via raw SQL and
-    // then test get/update/delete through the typed Repo API.
 
-    @Test("Get by String id")
-    func stringPKGetById() async throws {
+    @Test("Insert with user-supplied String PK preserves the id")
+    func stringPKInsertWithIncludePrimaryKey() async throws {
         try await withStringPKTable { repo in
-            try await insertStringPKRow(repo: repo, id: "slug-123", name: "Page")
+            let item = StringPKItem(id: "slug-123", name: "Page")
+            let inserted = try await repo.insert(item, includePrimaryKey: true)
+
+            #expect(inserted.id == "slug-123")
+            #expect(inserted.name == "Page")
 
             let fetched = try await repo.get(StringPKItem.self, id: "slug-123")
             #expect(fetched != nil)
@@ -174,11 +165,11 @@ struct NonUUIDPrimaryKeyTests {
         }
     }
 
-    @Test("All returns String PK rows")
+    @Test("All returns String PK rows inserted with includePrimaryKey")
     func stringPKAll() async throws {
         try await withStringPKTable { repo in
-            try await insertStringPKRow(repo: repo, id: "alpha", name: "First")
-            try await insertStringPKRow(repo: repo, id: "beta", name: "Second")
+            _ = try await repo.insert(StringPKItem(id: "alpha", name: "First"), includePrimaryKey: true)
+            _ = try await repo.insert(StringPKItem(id: "beta", name: "Second"), includePrimaryKey: true)
 
             let all = try await repo.all(StringPKItem.self)
             #expect(all.count == 2)
@@ -194,7 +185,7 @@ struct NonUUIDPrimaryKeyTests {
     @Test("Update by String id")
     func stringPKUpdate() async throws {
         try await withStringPKTable { repo in
-            try await insertStringPKRow(repo: repo, id: "doc-1", name: "Original")
+            _ = try await repo.insert(StringPKItem(id: "doc-1", name: "Original"), includePrimaryKey: true)
 
             let updated = try await repo.update(
                 StringPKItem.self,
@@ -213,7 +204,7 @@ struct NonUUIDPrimaryKeyTests {
     @Test("Delete by String id")
     func stringPKDelete() async throws {
         try await withStringPKTable { repo in
-            try await insertStringPKRow(repo: repo, id: "remove-me", name: "Gone")
+            _ = try await repo.insert(StringPKItem(id: "remove-me", name: "Gone"), includePrimaryKey: true)
 
             try await repo.delete(StringPKItem.self, id: "remove-me")
 
@@ -222,6 +213,91 @@ struct NonUUIDPrimaryKeyTests {
 
             let all = try await repo.all(StringPKItem.self)
             #expect(all.isEmpty)
+        }
+    }
+
+    // MARK: - includePrimaryKey Tests
+
+    @Test("Insert with specific Int PK using includePrimaryKey")
+    func intPKInsertWithIncludePrimaryKey() async throws {
+        try await withIntPKTable { repo in
+            // Override the table to not use SERIAL so we can supply our own
+            try await repo.executeRawSQL("DROP TABLE IF EXISTS \"int_pk_items\"")
+            try await repo.executeRawSQL("""
+                CREATE TABLE "int_pk_items" (
+                    "id" INTEGER PRIMARY KEY,
+                    "name" TEXT NOT NULL DEFAULT ''
+                )
+            """)
+
+            let item = IntPKItem(id: 42, name: "Custom ID")
+            let inserted = try await repo.insert(item, includePrimaryKey: true)
+
+            #expect(inserted.id == 42)
+            #expect(inserted.name == "Custom ID")
+
+            let fetched = try await repo.get(IntPKItem.self, id: 42)
+            #expect(fetched?.id == 42)
+            #expect(fetched?.name == "Custom ID")
+        }
+    }
+
+    @Test("insertAll with includePrimaryKey preserves all user-supplied PKs")
+    func insertAllWithIncludePrimaryKey() async throws {
+        try await withStringPKTable { repo in
+            let items = [
+                StringPKItem(id: "batch-1", name: "First"),
+                StringPKItem(id: "batch-2", name: "Second"),
+                StringPKItem(id: "batch-3", name: "Third"),
+            ]
+            let results = try await repo.insertAll(items, includePrimaryKey: true)
+
+            #expect(results.count == 3)
+            let sorted = results.sorted { $0.id < $1.id }
+            #expect(sorted[0].id == "batch-1")
+            #expect(sorted[1].id == "batch-2")
+            #expect(sorted[2].id == "batch-3")
+
+            let all = try await repo.all(StringPKItem.self)
+            #expect(all.count == 3)
+        }
+    }
+
+    @Test("Upsert with includePrimaryKey inserts then updates on conflict")
+    func upsertWithIncludePrimaryKey() async throws {
+        try await withStringPKTable { repo in
+            let item = StringPKItem(id: "upsert-key", name: "Original")
+            let inserted = try await repo.upsert(
+                item,
+                conflictTarget: .columns(["id"]),
+                set: ["name"],
+                includePrimaryKey: true
+            )
+            #expect(inserted.id == "upsert-key")
+            #expect(inserted.name == "Original")
+
+            let updated = StringPKItem(id: "upsert-key", name: "Updated")
+            let upserted = try await repo.upsert(
+                updated,
+                conflictTarget: .columns(["id"]),
+                set: ["name"],
+                includePrimaryKey: true
+            )
+            #expect(upserted.id == "upsert-key")
+            #expect(upserted.name == "Updated")
+
+            let all = try await repo.all(StringPKItem.self)
+            #expect(all.count == 1)
+        }
+    }
+
+    @Test("Insert without includePrimaryKey still excludes PK (backward compat)")
+    func insertWithoutFlagExcludesPK() async throws {
+        try await withIntPKTable { repo in
+            // Default behavior: SERIAL assigns the PK
+            let inserted = try await repo.insert(IntPKItem(name: "AutoPK"))
+            #expect(inserted.id > 0)
+            #expect(inserted.name == "AutoPK")
         }
     }
 

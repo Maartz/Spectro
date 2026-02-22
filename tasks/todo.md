@@ -39,7 +39,7 @@
 - [x] Full REST API validated with curl (CRUD + preloading)
 
 ## Future Work
-- [ ] Support user-supplied primary keys in repo.insert() (currently excludes PK; String PKs need raw SQL)
+- [x] Support user-supplied primary keys in repo.insert() — `includePrimaryKey: Bool` param on insert/upsert/insertAll
 - [ ] Fix fromSync(row:) to respect @Column("custom_name") overrides
 - [ ] Test coverage for .constraint(...) conflict target
 - [ ] Type-safe aggregate API with QueryField overloads
