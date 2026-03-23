@@ -268,16 +268,16 @@ public struct DatabaseConfiguration: Sendable {
     }
 
     public static func fromEnvironment() throws -> DatabaseConfiguration {
-        guard let username = ProcessInfo.processInfo.environment["DB_USERNAME"] else {
-            throw SpectroError.missingEnvironmentVariable("DB_USERNAME")
+        guard let username = ProcessInfo.processInfo.environment["DB_USER"] else {
+            throw SpectroError.missingEnvironmentVariable("DB_USER")
         }
         guard let password = ProcessInfo.processInfo.environment["DB_PASSWORD"] else {
             throw SpectroError.missingEnvironmentVariable("DB_PASSWORD")
         }
-        guard let database = ProcessInfo.processInfo.environment["DB_DATABASE"] else {
-            throw SpectroError.missingEnvironmentVariable("DB_DATABASE")
+        guard let database = ProcessInfo.processInfo.environment["DB_NAME"] else {
+            throw SpectroError.missingEnvironmentVariable("DB_NAME")
         }
-        let hostname = ProcessInfo.processInfo.environment["DB_HOSTNAME"] ?? "localhost"
+        let hostname = ProcessInfo.processInfo.environment["DB_HOST"] ?? "localhost"
         let port = Int(ProcessInfo.processInfo.environment["DB_PORT"] ?? "5432") ?? 5432
         return DatabaseConfiguration(
             hostname: hostname,

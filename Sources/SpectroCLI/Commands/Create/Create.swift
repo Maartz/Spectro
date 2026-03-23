@@ -36,7 +36,7 @@ struct Create: AsyncParsableCommand {
                message.contains("already exists") {
                 throw DatabaseError.alreadyExists(databaseName)
             }
-            throw DatabaseError.createdFailed(String(reflecting: error))
+            throw DatabaseError.createFailed(String(reflecting: error))
         }
         await spectro.shutdown()
     }
