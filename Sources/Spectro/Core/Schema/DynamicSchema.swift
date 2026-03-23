@@ -55,9 +55,21 @@ open class DynamicSchema: Schema {
     }
 }
 
-// DynamicSchema has mutable state ([String: Any] attributes) that is not
-// thread-safe. @unchecked Sendable tells the compiler we accept that
-// responsibility. Do not access DynamicSchema instances concurrently.
+// MARK: - Sendable Conformance
+//
+// DynamicSchema has mutable state (`attributes: [String: Any]`) that is not
+// inherently thread-safe. We mark it `@unchecked Sendable` with the following
+// safety contract:
+//
+// 1. DynamicSchema instances are typically created, populated, and consumed
+//    within a single task/thread during row mapping.
+// 2. Callers MUST NOT access the same DynamicSchema instance concurrently
+//    from multiple tasks without external synchronization.
+// 3. Once a DynamicSchema is fully populated, it should be treated as
+//    effectively immutable for the remainder of its use.
+//
+// Violating these invariants may cause data races. If concurrent access is
+// needed, wrap the instance in an actor or use locks.
 extension DynamicSchema: @unchecked Sendable {}
 
 // MARK: - Schema Extension
@@ -66,7 +78,9 @@ extension Schema {
     public mutating func applyValues(_ values: [String: Any]) {
         if var dynamic = self as? DynamicSchema {
             for (key, value) in values { dynamic.setAttribute(key, value: value) }
-            self = dynamic as! Self
+            if let result = dynamic as? Self {
+                self = result
+            }
         }
     }
 }

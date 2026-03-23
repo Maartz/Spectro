@@ -25,7 +25,7 @@ let package = Package(
         .target(
             name: "SpectroCore",
             dependencies: [],
-            swiftSettings: [.swiftLanguageVersion(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .macro(
             name: "SpectroMacros",
@@ -34,7 +34,7 @@ let package = Package(
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
             ],
             path: "Sources/SpectroMacros",
-            swiftSettings: [.swiftLanguageVersion(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .target(
             name: "Spectro",
@@ -47,7 +47,7 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
             ],
             path: "Sources/Spectro",
-            swiftSettings: [.swiftLanguageVersion(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(
             name: "SpectroCLI",
@@ -57,7 +57,7 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/SpectroCLI",
-            swiftSettings: [.swiftLanguageVersion(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .testTarget(
             name: "SpectroTests",
@@ -66,7 +66,7 @@ let package = Package(
                 "Spectro",
             ],
             path: "Tests/SpectroTests",
-            swiftSettings: [.swiftLanguageVersion(.v6)]
+            swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
 )

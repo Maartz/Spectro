@@ -1,41 +1,34 @@
 import Foundation
 import PostgresNIO
-import AsyncKit
 
-/// Generic database repository that works with any Schema type.
+/// A repository backed by a pinned `TransactionContext` connection.
 ///
-/// `GenericDatabaseRepo` provides a type-safe, actor-based data access layer for PostgreSQL.
-/// It implements the Repository pattern with full CRUD operations, query building, and transaction support.
-public actor GenericDatabaseRepo: Repo {
-    private let connection: DatabaseConnection
+/// All CRUD operations execute on the same database connection that issued `BEGIN`,
+/// guaranteeing atomicity. Created automatically by `GenericDatabaseRepo.transaction()`.
+///
+/// **Limitations:**
+/// - `query()` (the composable `Query<T>` builder) is **not available** in transactions
+///   because `Query<T>` stores a `DatabaseConnection` reference. Use the direct CRUD
+///   methods (`get`, `all`, `insert`, `update`, `delete`) inside transaction closures.
+/// - Nested transactions are not supported and will throw `SpectroError.transactionAlreadyStarted`.
+public actor TransactionRepo: Repo {
+    private let context: TransactionContext
 
-    public init(connection: DatabaseConnection) {
-        self.connection = connection
-    }
-
-    // MARK: - Query
-
-    public func query<T: Schema>(_ schema: T.Type) -> Query<T> {
-        Query(schema: schema, connection: connection)
+    init(context: TransactionContext) {
+        self.context = context
     }
 
     // MARK: - Raw SQL
 
     public func executeRawSQL(_ sql: String) async throws {
-        try await connection.executeUpdate(sql: sql)
+        try await context.execute(sql)
     }
 
-    /// Execute a raw SQL query with parameters and return raw PostgresRow results.
-    /// Useful for junction table queries in many-to-many preloading.
     public func executeRawQuery(
         sql: String,
         parameters: [PostgresData] = []
     ) async throws -> [PostgresRow] {
-        try await connection.executeQuery(
-            sql: sql,
-            parameters: parameters,
-            resultMapper: { $0 }
-        )
+        try await context.query(sql, parameters, mapper: { $0 })
     }
 
     // MARK: - CRUD
@@ -49,11 +42,7 @@ public actor GenericDatabaseRepo: Repo {
 
         let sql = "SELECT * FROM \(metadata.tableName.quoted) WHERE \(primaryKey.snakeCase().quoted) = $1"
 
-        let rows = try await connection.executeQuery(
-            sql: sql,
-            parameters: [id.toPostgresData()],
-            resultMapper: { $0 }
-        )
+        let rows = try await context.query(sql, [id.toPostgresData()], mapper: { $0 })
 
         guard let row = rows.first else { return nil }
         return try await mapRowToSchema(row, schema: schema)
@@ -62,7 +51,7 @@ public actor GenericDatabaseRepo: Repo {
     public func all<T: Schema>(_ schema: T.Type) async throws -> [T] {
         let metadata = await SchemaRegistry.shared.register(schema)
         let sql = "SELECT * FROM \(metadata.tableName.quoted)"
-        let rows = try await connection.executeQuery(sql: sql, resultMapper: { $0 })
+        let rows = try await context.query(sql, mapper: { $0 })
 
         var results: [T] = []
         for row in rows {
@@ -85,11 +74,7 @@ public actor GenericDatabaseRepo: Repo {
             RETURNING *
             """
 
-        let rows = try await connection.executeQuery(
-            sql: sql,
-            parameters: values,
-            resultMapper: { $0 }
-        )
+        let rows = try await context.query(sql, values, mapper: { $0 })
 
         guard let row = rows.first else {
             throw SpectroError.databaseError(reason: "Insert did not return a row")
@@ -106,7 +91,6 @@ public actor GenericDatabaseRepo: Repo {
         let placeholders = (1...data.count).map { "$\($0)" }.joined(separator: ", ")
         let values = Array(data.values)
 
-        // Build ON CONFLICT clause
         let conflictClause: String
         switch conflictTarget {
         case .columns(let cols):
@@ -116,7 +100,6 @@ public actor GenericDatabaseRepo: Repo {
             conflictClause = "ON CONFLICT ON CONSTRAINT \(name.quoted)"
         }
 
-        // Determine which columns to update on conflict
         let updateColumns: [String]
         if let set = set {
             guard !set.isEmpty else {
@@ -124,7 +107,6 @@ public actor GenericDatabaseRepo: Repo {
             }
             updateColumns = set.map { $0.snakeCase() }
         } else {
-            // Update all non-primary-key columns
             updateColumns = Array(data.keys)
         }
 
@@ -139,11 +121,7 @@ public actor GenericDatabaseRepo: Repo {
             RETURNING *
             """
 
-        let rows = try await connection.executeQuery(
-            sql: sql,
-            parameters: values,
-            resultMapper: { $0 }
-        )
+        let rows = try await context.query(sql, values, mapper: { $0 })
 
         guard let row = rows.first else {
             throw SpectroError.databaseError(reason: "Upsert did not return a row")
@@ -157,13 +135,11 @@ public actor GenericDatabaseRepo: Repo {
 
         let metadata = await SchemaRegistry.shared.register(T.self)
 
-        // Extract data from the first instance to determine column order
         let firstData = SchemaMapper.extractData(from: instances[0], metadata: metadata, excludePrimaryKey: !includePrimaryKey)
         let columnNames = Array(firstData.keys)
         let columns = columnNames.map { $0.quoted }.joined(separator: ", ")
         let columnsPerRow = columnNames.count
 
-        // Auto-batch at 1000 rows to stay under PostgreSQL's 65535 parameter limit
         let batchSize = 1000
         var allResults: [T] = []
 
@@ -180,7 +156,6 @@ public actor GenericDatabaseRepo: Repo {
                 let placeholders = (paramIndex..<(paramIndex + columnsPerRow)).map { "$\($0)" }.joined(separator: ", ")
                 valueTuples.append("(\(placeholders))")
 
-                // Add values in the same column order as the first instance
                 for col in columnNames {
                     if let value = data[col] {
                         values.append(value)
@@ -198,11 +173,7 @@ public actor GenericDatabaseRepo: Repo {
                 RETURNING *
                 """
 
-            let rows = try await connection.executeQuery(
-                sql: sql,
-                parameters: values,
-                resultMapper: { $0 }
-            )
+            let rows = try await context.query(sql, values, mapper: { $0 })
 
             for row in rows {
                 allResults.append(try await mapRowToSchema(row, schema: T.self))
@@ -238,11 +209,7 @@ public actor GenericDatabaseRepo: Repo {
             RETURNING *
             """
 
-        let rows = try await connection.executeQuery(
-            sql: sql,
-            parameters: values,
-            resultMapper: { $0 }
-        )
+        let rows = try await context.query(sql, values, mapper: { $0 })
 
         guard let row = rows.first else {
             throw SpectroError.databaseError(reason: "Update did not return a row")
@@ -266,14 +233,11 @@ public actor GenericDatabaseRepo: Repo {
         }
 
         let sql = "DELETE FROM \(metadata.tableName.quoted) WHERE \(primaryKey.snakeCase().quoted) = $1"
-        try await connection.executeUpdate(sql: sql, parameters: [id.toPostgresData()])
+        try await context.execute(sql, [id.toPostgresData()])
     }
 
     public func transaction<T: Sendable>(_ work: @escaping @Sendable (any Repo) async throws -> T) async throws -> T {
-        try await connection.transaction { context in
-            let transactionRepo = TransactionRepo(context: context)
-            return try await work(transactionRepo)
-        }
+        throw SpectroError.transactionAlreadyStarted
     }
 
     // MARK: - Private

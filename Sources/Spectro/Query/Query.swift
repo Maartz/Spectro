@@ -269,11 +269,11 @@ public struct Query<T: Schema>: Sendable {
         let kind = tempInstance[keyPath: keyPath].relationshipInfo.kind
         if kind == .manyToMany {
             return PreloadQuery(baseQuery: self, preloaders: [
-                PreloadQuery<T>.manyToManyPreloader(keyPath: keyPath, parentType: T.self)
+                PreloadQuery<T>.manyToManyPreloader(keyPath: keyPath)
             ])
         }
         return PreloadQuery(baseQuery: self, preloaders: [
-            PreloadQuery<T>.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)
+            PreloadQuery<T>.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey)
         ])
     }
 
@@ -282,7 +282,7 @@ public struct Query<T: Schema>: Sendable {
         foreignKey: String? = nil
     ) -> PreloadQuery<T> {
         PreloadQuery(baseQuery: self, preloaders: [
-            PreloadQuery<T>.singlePreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)
+            PreloadQuery<T>.singlePreloader(keyPath: keyPath, foreignKey: foreignKey)
         ])
     }
 
@@ -376,51 +376,7 @@ public struct Query<T: Schema>: Sendable {
     }
 
     public func groupedCount() async throws -> [GroupedResult] {
-        guard !groupByFields.isEmpty else {
-            throw SpectroError.invalidQuery("groupedCount() requires at least one groupBy() clause")
-        }
-
-        let table = T.tableName.quoted
-        let groupColumns = groupByFields.map { $0.quoted }.joined(separator: ", ")
-        let joinClause = buildJoinClause()
-
-        var sql = "SELECT \(groupColumns), COUNT(*) as agg_result FROM \(table)"
-
-        if !joinClause.isEmpty { sql += " \(joinClause)" }
-        if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
-        sql += " GROUP BY \(groupColumns)"
-        if !havingClause.isEmpty { sql += " HAVING \(havingClause)" }
-
-        let orderClause = buildOrderClause()
-        if !orderClause.isEmpty { sql += " ORDER BY \(orderClause)" }
-        let limitClause = buildLimitClause()
-        if !limitClause.isEmpty { sql += limitClause }
-
-        let finalSQL = renumberPlaceholders(in: sql)
-        let allParameters = parameters + havingParameters
-
-        return try await connection.executeQuery(
-            sql: finalSQL,
-            parameters: allParameters,
-            resultMapper: { row in
-                let randomAccess = row.makeRandomAccess()
-                var group: [String: String] = [:]
-                for col in self.groupByFields {
-                    if let str = randomAccess[data: col].string {
-                        group[col] = str
-                    } else if let b = randomAccess[data: col].bool {
-                        group[col] = b ? "true" : "false"
-                    } else if let i = randomAccess[data: col].int {
-                        group[col] = String(i)
-                    } else if let d = randomAccess[data: col].double {
-                        group[col] = String(d)
-                    }
-                }
-                let value = randomAccess[data: "agg_result"].double
-                    ?? randomAccess[data: "agg_result"].int.map(Double.init)
-                return GroupedResult(group: group, value: value)
-            }
-        )
+        try await groupedAggregateExecute(function: "COUNT", column: "*")
     }
 
     private func groupedAggregateExecute(function: String, column: String) async throws -> [GroupedResult] {
@@ -502,7 +458,8 @@ public struct Query<T: Schema>: Sendable {
         let groupColumns = groupByFields.map { $0.quoted }.joined(separator: ", ")
         let joinClause = buildJoinClause()
 
-        var sql = "SELECT \(groupColumns), CAST(\(function)(\(column.snakeCase().quoted)) AS DOUBLE PRECISION) as agg_result FROM \(table)"
+        let colExpr = column == "*" ? "*" : column.snakeCase().quoted
+        var sql = "SELECT \(groupColumns), CAST(\(function)(\(colExpr)) AS DOUBLE PRECISION) as agg_result FROM \(table)"
 
         if !joinClause.isEmpty { sql += " \(joinClause)" }
         if !whereClause.isEmpty { sql += " WHERE \(whereClause)" }
@@ -673,11 +630,25 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
 
     private func mapRowToTuple(_ row: PostgresRow) throws -> Result {
         if let tupleBuildableType = Result.self as? any TupleBuildable.Type {
-            return try TupleMapper.mapRow(row, selectedFields: selectedFields, to: tupleBuildableType) as! Result
+            let mapped = try TupleMapper.mapRow(row, selectedFields: selectedFields, to: tupleBuildableType)
+            guard let result = mapped as? Result else {
+                throw SpectroError.resultDecodingFailed(
+                    column: selectedFields.joined(separator: ", "),
+                    expectedType: String(describing: Result.self)
+                )
+            }
+            return result
         }
         if selectedFields.count == 1 {
             let randomAccess = row.makeRandomAccess()
-            return try extractSingleValue(from: randomAccess[data: selectedFields[0]]) as! Result
+            let value = try extractSingleValue(from: randomAccess[data: selectedFields[0]])
+            guard let result = value as? Result else {
+                throw SpectroError.resultDecodingFailed(
+                    column: selectedFields[0],
+                    expectedType: String(describing: Result.self)
+                )
+            }
+            return result
         }
         throw SpectroError.notImplemented("Result type \(Result.self) must conform to TupleBuildable for multi-field selection")
     }
@@ -810,6 +781,9 @@ extension QueryField where V == String {
 extension QueryField where V: Equatable {
     public func `in`<S: Sequence>(_ values: S) -> QueryCondition where S.Element == V {
         let valueArray = Array(values)
+        guard !valueArray.isEmpty else {
+            return QueryCondition(sql: "FALSE", parameters: [])
+        }
         let placeholders = Array(repeating: "?", count: valueArray.count).joined(separator: ", ")
         return QueryCondition(
             sql: "\(name.snakeCase().quoted) IN (\(placeholders))",
@@ -819,6 +793,9 @@ extension QueryField where V: Equatable {
 
     public func notIn<S: Sequence>(_ values: S) -> QueryCondition where S.Element == V {
         let valueArray = Array(values)
+        guard !valueArray.isEmpty else {
+            return QueryCondition(sql: "TRUE", parameters: [])
+        }
         let placeholders = Array(repeating: "?", count: valueArray.count).joined(separator: ", ")
         return QueryCondition(
             sql: "\(name.snakeCase().quoted) NOT IN (\(placeholders))",

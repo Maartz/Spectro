@@ -62,12 +62,27 @@ extension Schema {
             else if let v = dbValue.float   { values[fieldName] = v }
         }
 
+        return try buildInstance(from: values)
+    }
+
+    private static func buildInstance(from values: [String: Any]) throws -> Self {
         if let builderType = self as? any SchemaBuilder.Type {
-            return builderType.build(from: values) as! Self
+            let built = builderType.build(from: values)
+            guard let result = built as? Self else {
+                throw SpectroError.invalidSchema(
+                    reason: "SchemaBuilder.build(from:) returned incompatible type for \(Self.self)"
+                )
+            }
+            return result
         }
         if var mutable = Self() as? MutableSchema {
             mutable.apply(values: values)
-            return mutable as! Self
+            guard let result = mutable as? Self else {
+                throw SpectroError.invalidSchema(
+                    reason: "MutableSchema.apply(values:) returned incompatible type for \(Self.self)"
+                )
+            }
+            return result
         }
         throw SpectroError.invalidSchema(
             reason: "Schema \(Self.self) must conform to SchemaBuilder (use @Schema macro) or MutableSchema"
@@ -86,9 +101,10 @@ extension Schema {
         let randomAccess = row.makeRandomAccess()
 
         var values: [String: Any] = [:]
+
         for field in metadata.fields {
             let dbValue = randomAccess[data: field.databaseName]
-            // Switch on FieldType enum — fully Sendable, no Any.Type metatypes
+
             switch field.fieldType {
             case .string:
                 if let v = dbValue.string  { values[field.name] = v }
@@ -107,15 +123,6 @@ extension Schema {
             }
         }
 
-        if let builderType = self as? any SchemaBuilder.Type {
-            return builderType.build(from: values) as! Self
-        }
-        if var mutable = Self() as? MutableSchema {
-            mutable.apply(values: values)
-            return mutable as! Self
-        }
-        throw SpectroError.invalidSchema(
-            reason: "Schema \(Self.self) must conform to SchemaBuilder (use @Schema macro) or MutableSchema"
-        )
+        return try buildInstance(from: values)
     }
 }

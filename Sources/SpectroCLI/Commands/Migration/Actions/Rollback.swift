@@ -19,14 +19,14 @@ struct Rollback: AsyncParsableCommand {
         if let v = database { overrides["database"] = v }
 
         let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
-        let spectro = try Spectro(
+        let spectro = try SpectroClient(
             hostname: config.hostname, port: config.port,
             username: config.username, password: config.password, database: config.database
         )
 
         let manager = spectro.migrationManager()
         do {
-            try await manager.runRollback()
+            try await manager.runRollback(steps: step)
             print(manager.rollbackAppliedMessages())
         } catch {
             print("Rollback failed: \(error.localizedDescription)")

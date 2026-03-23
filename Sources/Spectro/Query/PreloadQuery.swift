@@ -46,12 +46,12 @@ public struct PreloadQuery<T: Schema>: Sendable {
         if kind == .manyToMany {
             return PreloadQuery(
                 baseQuery: baseQuery,
-                preloaders: preloaders + [Self.manyToManyPreloader(keyPath: keyPath, parentType: T.self)]
+                preloaders: preloaders + [Self.manyToManyPreloader(keyPath: keyPath)]
             )
         }
         return PreloadQuery(
             baseQuery: baseQuery,
-            preloaders: preloaders + [Self.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)]
+            preloaders: preloaders + [Self.hasManyPreloader(keyPath: keyPath, foreignKey: foreignKey)]
         )
     }
 
@@ -61,7 +61,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
     ) -> PreloadQuery<T> {
         PreloadQuery(
             baseQuery: baseQuery,
-            preloaders: preloaders + [Self.singlePreloader(keyPath: keyPath, foreignKey: foreignKey, parentType: T.self)]
+            preloaders: preloaders + [Self.singlePreloader(keyPath: keyPath, foreignKey: foreignKey)]
         )
     }
 
@@ -102,9 +102,19 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
     // MARK: - Preloader Factory Methods
 
-    // WritableKeyPath has @unchecked Sendable from Swift stdlib but the Swift 6.2
-    // checker doesn't always propagate it through generic parameters. Wrap in this
-    // box so the closure can capture it without a Sendable diagnostic.
+    // MARK: KeyPath Boxing for Sendable Closures
+    //
+    // `WritableKeyPath` has `@unchecked Sendable` conformance in Swift's stdlib,
+    // but Swift 6.x's strict concurrency checker doesn't always propagate this
+    // through generic type parameters in closure captures.
+    //
+    // `KPBox` wraps the keypath so closures can capture it without diagnostics.
+    // This is safe because:
+    // 1. `WritableKeyPath` is documented as Sendable by Apple
+    // 2. The keypath itself is immutable after creation
+    // 3. We only read the keypath, never mutate it
+    //
+    // This workaround can be removed when Swift's Sendable inference improves.
     private struct KPBox<Root, Value>: @unchecked Sendable {
         let value: WritableKeyPath<Root, Value>
     }
@@ -113,10 +123,9 @@ public struct PreloadQuery<T: Schema>: Sendable {
     /// FK is on the *related* table: `SELECT * FROM related WHERE fk IN (parentIds)`.
     static func hasManyPreloader<Related: Schema>(
         keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
-        foreignKey: String?,
-        parentType: T.Type
+        foreignKey: String?
     ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
-        let fk = foreignKey ?? conventionalForeignKey(for: parentType)
+        let fk = foreignKey ?? conventionalForeignKey(for: T.self)
         let box = KPBox(value: keyPath)
         return { entities, repo in
             try await batchLoadHasMany(entities: entities, keyPath: box.value, foreignKey: fk, repo: repo)
@@ -127,8 +136,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
     /// Reads `RelationshipInfo.kind` from a temporary instance to distinguish them.
     static func singlePreloader<Related: Schema>(
         keyPath: WritableKeyPath<T, SpectroLazyRelation<Related?>>,
-        foreignKey: String?,
-        parentType: T.Type
+        foreignKey: String?
     ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
         let tempInstance = T()
         let kind = tempInstance[keyPath: keyPath].relationshipInfo.kind
@@ -136,7 +144,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
         switch kind {
         case .hasOne:
-            let fk = foreignKey ?? conventionalForeignKey(for: parentType)
+            let fk = foreignKey ?? conventionalForeignKey(for: T.self)
             return { entities, repo in
                 try await batchLoadHasOne(entities: entities, keyPath: box.value, foreignKey: fk, repo: repo)
             }
@@ -146,7 +154,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
                 try await batchLoadBelongsTo(entities: entities, keyPath: box.value, foreignKey: fk, repo: repo)
             }
         default:
-            let fk = foreignKey ?? conventionalForeignKey(for: parentType)
+            let fk = foreignKey ?? conventionalForeignKey(for: T.self)
             return { entities, repo in
                 try await batchLoadHasOne(entities: entities, keyPath: box.value, foreignKey: fk, repo: repo)
             }
@@ -156,15 +164,14 @@ public struct PreloadQuery<T: Schema>: Sendable {
     /// Creates a preloader for a many-to-many relationship.
     /// Queries the junction table, then the related table, grouping results back to parents.
     static func manyToManyPreloader<Related: Schema>(
-        keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
-        parentType: T.Type
+        keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>
     ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
         let tempInstance = T()
         let relInfo = tempInstance[keyPath: keyPath].relationshipInfo
         let junctionTable = relInfo.junctionTable ?? ""
         let parentFK = (relInfo.parentForeignKey?.isEmpty == false)
             ? relInfo.parentForeignKey!
-            : conventionalForeignKey(for: parentType)
+            : conventionalForeignKey(for: T.self)
         let relatedFK = (relInfo.relatedForeignKey?.isEmpty == false)
             ? relInfo.relatedForeignKey!
             : conventionalForeignKey(for: Related.self)
@@ -194,14 +201,12 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
 
-        // Extract both AnyHashable keys (for dict grouping) and PostgresData (for SQL params)
         var parentKeys: [AnyHashable] = []
         var parentParams: [PostgresData] = []
         for entity in entities {
-            if let key = extractPrimaryKey(from: entity, fieldName: pkField),
-               let data = extractPrimaryKeyData(from: entity, fieldName: pkField) {
-                parentKeys.append(key)
-                parentParams.append(data)
+            if let pair = extractPrimaryKeyPair(from: entity, fieldName: pkField) {
+                parentKeys.append(pair.key)
+                parentParams.append(pair.data)
             }
         }
         guard !parentKeys.isEmpty else { return entities }
@@ -249,18 +254,16 @@ public struct PreloadQuery<T: Schema>: Sendable {
             repo: repo
         )
 
-        // Index related entities by PK
         var relatedIndex: [AnyHashable: Related] = [:]
         for r in relatedEntities {
-            if let id = extractPrimaryKey(from: r, fieldName: relPK) {
-                relatedIndex[id] = r
+            if let pair = extractPrimaryKeyPair(from: r, fieldName: relPK) {
+                relatedIndex[pair.key] = r
             }
         }
 
-        // Step 3: Map results back to parent entities
         return entities.map { entity in
             var e = entity
-            let parentId = extractPrimaryKey(from: entity, fieldName: pkField)
+            let parentId = extractPrimaryKeyPair(from: entity, fieldName: pkField)?.key
             let relatedIds = parentId.flatMap { parentToRelatedIds[$0] } ?? []
             let loaded = relatedIds.compactMap { relatedIndex[$0] }
             e[keyPath: keyPath] = SpectroLazyRelation(
@@ -280,11 +283,10 @@ public struct PreloadQuery<T: Schema>: Sendable {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
 
-        // Extract both AnyHashable keys and PostgresData params in parallel
         var parentParams: [PostgresData] = []
         for entity in entities {
-            if let data = extractPrimaryKeyData(from: entity, fieldName: pkField) {
-                parentParams.append(data)
+            if let pair = extractPrimaryKeyPair(from: entity, fieldName: pkField) {
+                parentParams.append(pair.data)
             }
         }
         guard !parentParams.isEmpty else { return entities }
@@ -296,17 +298,16 @@ public struct PreloadQuery<T: Schema>: Sendable {
             repo: repo
         )
 
-        // Group related entities by their FK value (points back to parent)
         var grouped: [AnyHashable: [Related]] = [:]
         for r in related {
-            if let fkVal = extractPrimaryKey(from: r, fieldName: foreignKey) {
-                grouped[fkVal, default: []].append(r)
+            if let pair = extractPrimaryKeyPair(from: r, fieldName: foreignKey) {
+                grouped[pair.key, default: []].append(r)
             }
         }
 
         return entities.map { entity in
             var e = entity
-            let parentId = extractPrimaryKey(from: entity, fieldName: pkField)
+            let parentId = extractPrimaryKeyPair(from: entity, fieldName: pkField)?.key
             let loaded = parentId.flatMap { grouped[$0] } ?? []
             e[keyPath: keyPath] = SpectroLazyRelation(
                 loaded: loaded,
@@ -327,8 +328,8 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
         var parentParams: [PostgresData] = []
         for entity in entities {
-            if let data = extractPrimaryKeyData(from: entity, fieldName: pkField) {
-                parentParams.append(data)
+            if let pair = extractPrimaryKeyPair(from: entity, fieldName: pkField) {
+                parentParams.append(pair.data)
             }
         }
         guard !parentParams.isEmpty else { return entities }
@@ -340,18 +341,17 @@ public struct PreloadQuery<T: Schema>: Sendable {
             repo: repo
         )
 
-        // HasOne: keep only the first match per parent
         var grouped: [AnyHashable: Related] = [:]
         for r in related {
-            if let fkVal = extractPrimaryKey(from: r, fieldName: foreignKey),
-               grouped[fkVal] == nil {
-                grouped[fkVal] = r
+            if let pair = extractPrimaryKeyPair(from: r, fieldName: foreignKey),
+               grouped[pair.key] == nil {
+                grouped[pair.key] = r
             }
         }
 
         return entities.map { entity in
             var e = entity
-            let parentId = extractPrimaryKey(from: entity, fieldName: pkField)
+            let parentId = extractPrimaryKeyPair(from: entity, fieldName: pkField)?.key
             let loaded: Related? = parentId.flatMap { grouped[$0] }
             e[keyPath: keyPath] = SpectroLazyRelation(
                 loaded: loaded,
@@ -367,14 +367,12 @@ public struct PreloadQuery<T: Schema>: Sendable {
         foreignKey: String,      // Column on T that holds the related entity's ID
         repo: GenericDatabaseRepo
     ) async throws -> [T] {
-        // Collect unique FK values from entities (both AnyHashable for keying and PostgresData for query)
         var seen = Set<AnyHashable>()
         var relatedParams: [PostgresData] = []
         for entity in entities {
-            if let fkVal = extractPrimaryKey(from: entity, fieldName: foreignKey),
-               seen.insert(fkVal).inserted,
-               let fkData = extractPrimaryKeyData(from: entity, fieldName: foreignKey) {
-                relatedParams.append(fkData)
+            if let pair = extractPrimaryKeyPair(from: entity, fieldName: foreignKey),
+               seen.insert(pair.key).inserted {
+                relatedParams.append(pair.data)
             }
         }
         guard !relatedParams.isEmpty else { return entities }
@@ -392,12 +390,12 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
         var index: [AnyHashable: Related] = [:]
         for r in related {
-            if let id = extractPrimaryKey(from: r, fieldName: relPK) { index[id] = r }
+            if let pair = extractPrimaryKeyPair(from: r, fieldName: relPK) { index[pair.key] = r }
         }
 
         return entities.map { entity in
             var e = entity
-            let fkVal = extractPrimaryKey(from: entity, fieldName: foreignKey)
+            let fkVal = extractPrimaryKeyPair(from: entity, fieldName: foreignKey)?.key
             let loaded: Related? = fkVal.flatMap { index[$0] }
             e[keyPath: keyPath] = SpectroLazyRelation(
                 loaded: loaded,
@@ -418,6 +416,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         inParams: [PostgresData],
         repo: GenericDatabaseRepo
     ) async throws -> [Related] {
+        guard !inParams.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: inParams.count).joined(separator: ", ")
         let condition = QueryCondition(
             sql: "\"\(whereColumn)\" IN (\(placeholders))",
@@ -437,6 +436,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         inParams: [PostgresData],
         repo: GenericDatabaseRepo
     ) async throws -> [(AnyHashable, AnyHashable, PostgresData)] {
+        guard !inParams.isEmpty else { return [] }
         let placeholders = (1...inParams.count).map { "$\($0)" }.joined(separator: ", ")
         let sql = """
             SELECT "\(whereColumn)", "\(relatedColumn)" FROM "\(junctionTable)" WHERE "\(whereColumn)" IN (\(placeholders))
@@ -470,33 +470,22 @@ public struct PreloadQuery<T: Schema>: Sendable {
 
     // MARK: - Helpers
 
-    /// Extract a primary key value from any @ID, @ForeignKey, or bare UUID/Int/String property by name.
-    /// Returns as `AnyHashable` for use as dictionary keys and `PostgresData` for query parameters.
-    static func extractPrimaryKey<S: Schema>(from entity: S, fieldName: String) -> AnyHashable? {
+    /// Extract a primary key from any @ID, @ForeignKey, or bare UUID/Int/String property by name.
+    /// Returns both the hashable key (for dictionary grouping) and PostgresData (for SQL params).
+    static func extractPrimaryKeyPair<S: Schema>(from entity: S, fieldName: String) -> (key: AnyHashable, data: PostgresData)? {
         for child in Mirror(reflecting: entity).children {
             guard let label = child.label else { continue }
             let name = label.hasPrefix("_") ? String(label.dropFirst()) : label
             guard name == fieldName else { continue }
-            if let v = child.value as? any PrimaryKeyWrapperProtocol { return v.primaryKeyHashable }
-            if let v = child.value as? any ForeignKeyWrapperProtocol { return v.foreignKeyHashable }
-            if let v = child.value as? UUID { return AnyHashable(v) }
-            if let v = child.value as? Int { return AnyHashable(v) }
-            if let v = child.value as? String { return AnyHashable(v) }
-        }
-        return nil
-    }
-
-    /// Extract `PostgresData` from any @ID, @ForeignKey, or bare UUID/Int/String property by name.
-    static func extractPrimaryKeyData<S: Schema>(from entity: S, fieldName: String) -> PostgresData? {
-        for child in Mirror(reflecting: entity).children {
-            guard let label = child.label else { continue }
-            let name = label.hasPrefix("_") ? String(label.dropFirst()) : label
-            guard name == fieldName else { continue }
-            if let v = child.value as? any PrimaryKeyWrapperProtocol { return v.primaryKeyPostgresData }
-            if let v = child.value as? any ForeignKeyWrapperProtocol { return v.foreignKeyPostgresData }
-            if let v = child.value as? UUID { return PostgresData(uuid: v) }
-            if let v = child.value as? Int { return PostgresData(int: v) }
-            if let v = child.value as? String { return PostgresData(string: v) }
+            if let v = child.value as? any PrimaryKeyWrapperProtocol {
+                return (v.primaryKeyHashable, v.primaryKeyPostgresData)
+            }
+            if let v = child.value as? any ForeignKeyWrapperProtocol {
+                return (v.foreignKeyHashable, v.foreignKeyPostgresData)
+            }
+            if let v = child.value as? UUID { return (AnyHashable(v), PostgresData(uuid: v)) }
+            if let v = child.value as? Int { return (AnyHashable(v), PostgresData(int: v)) }
+            if let v = child.value as? String { return (AnyHashable(v), PostgresData(string: v)) }
         }
         return nil
     }

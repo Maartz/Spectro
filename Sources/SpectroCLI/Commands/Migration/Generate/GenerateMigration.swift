@@ -17,7 +17,7 @@ struct GenerateMigration: AsyncParsableCommand {
         if let v = database { overrides["database"] = v }
 
         let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
-        let spectro = try Spectro(
+        let spectro = try SpectroClient(
             hostname: config.hostname, port: config.port,
             username: config.username, password: config.password, database: config.database
         )

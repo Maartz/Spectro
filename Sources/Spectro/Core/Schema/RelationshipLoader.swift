@@ -19,7 +19,7 @@ public struct RelationshipLoader {
         guard let pkField = parentMetadata.primaryKeyField else {
             throw SpectroError.invalidSchema(reason: "Schema \(Parent.self) has no primary key")
         }
-        guard let pkData = extractPrimaryKeyData(from: parent, fieldName: pkField) else {
+        guard let pkData = extractPrimaryKeyPair(from: parent, fieldName: pkField)?.data else {
             throw SpectroError.missingRequiredField("Primary key '\(pkField)' not found in \(Parent.self)")
         }
         let condition = QueryCondition(
@@ -53,7 +53,7 @@ public struct RelationshipLoader {
         foreignKey: String,
         using repo: GenericDatabaseRepo
     ) async throws -> Parent? {
-        guard let fkData = extractPrimaryKeyData(from: child, fieldName: foreignKey) else {
+        guard let fkData = extractPrimaryKeyPair(from: child, fieldName: foreignKey)?.data else {
             throw SpectroError.missingRequiredField("FK '\(foreignKey)' not found in \(Child.self)")
         }
         let parentMeta = await SchemaRegistry.shared.register(parentType)
@@ -67,23 +67,12 @@ public struct RelationshipLoader {
 
     // MARK: - Primary Key Extraction
 
-    /// Extract a UUID from a schema property by field name (backward compatibility).
-    /// Delegates to the generic `extractPrimaryKey` and attempts to cast to UUID.
     static func extractUUID<T: Schema>(from instance: T, fieldName: String) -> UUID? {
-        guard let key = PreloadQuery<T>.extractPrimaryKey(from: instance, fieldName: fieldName) else {
-            return nil
-        }
-        return key.base as? UUID
+        PreloadQuery<T>.extractPrimaryKeyPair(from: instance, fieldName: fieldName)?.key.base as? UUID
     }
 
-    /// Extract the primary key as `AnyHashable` for dictionary keying.
-    static func extractPrimaryKey<T: Schema>(from instance: T, fieldName: String) -> AnyHashable? {
-        PreloadQuery<T>.extractPrimaryKey(from: instance, fieldName: fieldName)
-    }
-
-    /// Extract the primary key as `PostgresData` for query parameters.
-    static func extractPrimaryKeyData<T: Schema>(from instance: T, fieldName: String) -> PostgresData? {
-        PreloadQuery<T>.extractPrimaryKeyData(from: instance, fieldName: fieldName)
+    static func extractPrimaryKeyPair<T: Schema>(from instance: T, fieldName: String) -> (key: AnyHashable, data: PostgresData)? {
+        PreloadQuery<T>.extractPrimaryKeyPair(from: instance, fieldName: fieldName)
     }
 }
 

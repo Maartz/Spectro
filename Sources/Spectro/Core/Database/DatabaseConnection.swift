@@ -11,7 +11,7 @@ public actor DatabaseConnection {
     // hitting the "calls wait()" diagnostic. Both are `let` constants so there
     // is no concurrent mutation to guard against.
     private nonisolated(unsafe) let pools: EventLoopGroupConnectionPool<PostgresConnectionSource>
-    private nonisolated(unsafe) let eventLoopGroup: EventLoopGroup
+    private nonisolated let eventLoopGroup: any EventLoopGroup
     private let configuration: DatabaseConfiguration
     private var isShutdown = false
 
@@ -44,11 +44,6 @@ public actor DatabaseConnection {
     }
 
     // MARK: - Operation Tracking
-    //
-    // Every pool operation is bracketed by beginOperation / endOperation so that
-    // shutdown() can wait for all in-flight NIO futures to complete before tearing
-    // down the pool. Without this, a concurrent shutdown could free pool memory
-    // while a future callback is still referencing it, causing a SIGBUS.
 
     private func beginOperation() throws {
         guard !isShutdown else {
@@ -76,7 +71,7 @@ public actor DatabaseConnection {
 
         do {
             let result: [T] = try await withCheckedThrowingContinuation { continuation in
-                let future: EventLoopFuture<[T]> = pools.withConnection { connection in
+                let future: EventLoopFuture<[T]> = self.pools.withConnection { connection in
                     connection.query(sql, parameters).flatMapThrowing { result in
                         try result.rows.map(resultMapper)
                     }
@@ -101,7 +96,7 @@ public actor DatabaseConnection {
 
         do {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                let future: EventLoopFuture<Void> = pools.withConnection { connection in
+                let future: EventLoopFuture<Void> = self.pools.withConnection { connection in
                     connection.query(sql, parameters).map { _ in }
                 }
                 future.whenComplete { result in
@@ -123,7 +118,7 @@ public actor DatabaseConnection {
 
         do {
             let result: Int = try await withCheckedThrowingContinuation { continuation in
-                let future: EventLoopFuture<Int> = pools.withConnection { connection in
+                let future: EventLoopFuture<Int> = self.pools.withConnection { connection in
                     connection.query(sql, parameters).map { _ in 1 }
                 }
                 future.whenComplete { result in
@@ -142,10 +137,6 @@ public actor DatabaseConnection {
     }
 
     // MARK: - Transactions
-    //
-    // Uses EventLoop.makeFutureWithTask to bridge the async `work` closure into the
-    // NIO EventLoopFuture chain on the same connection, avoiding the unstructured
-    // Task { } pattern that caused actor-isolation violations under Swift 6.
 
     public func transaction<T: Sendable>(
         _ work: @escaping @Sendable (TransactionContext) async throws -> T
@@ -154,7 +145,7 @@ public actor DatabaseConnection {
 
         do {
             let result: T = try await withCheckedThrowingContinuation { continuation in
-                let future: EventLoopFuture<T> = pools.withConnection { connection in
+                let future: EventLoopFuture<T> = self.pools.withConnection { connection in
                     connection.query("BEGIN ISOLATION LEVEL READ COMMITTED").flatMap { _ in
                         let context = TransactionContext(connection: connection)
 
@@ -167,6 +158,11 @@ public actor DatabaseConnection {
                         .flatMapError { error in
                             connection.query("ROLLBACK").flatMapThrowing { _ in
                                 throw SpectroError.transactionFailed(underlying: error)
+                            }.flatMapErrorThrowing { rollbackError in
+                                throw SpectroError.transactionAndRollbackFailed(
+                                    original: error,
+                                    rollback: rollbackError
+                                )
                             }
                         }
                     }
@@ -188,23 +184,21 @@ public actor DatabaseConnection {
 
     public nonisolated var config: DatabaseConfiguration { configuration }
 
+    /// Gracefully shuts down the database connection pool.
+    ///
+    /// Waits for all in-flight operations to complete before tearing down the
+    /// pool, preventing SIGBUS crashes from NIO future callbacks referencing
+    /// freed pool memory.
     public func shutdown() async {
         guard !isShutdown else { return }
         isShutdown = true
 
-        // Wait for all in-flight operations to drain before tearing down the
-        // pool. This prevents SIGBUS / Signal 10 crashes caused by NIO future
-        // callbacks referencing freed pool memory.
         if activeOperations > 0 {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                shutdownContinuation = continuation
+                self.shutdownContinuation = continuation
             }
         }
 
-        // pools.shutdown() is @available(*, noasync) because it calls wait()
-        // internally. Delegating to a nonisolated sync helper escapes that
-        // restriction without introducing a real deadlock risk — the pool
-        // shutdown is fast and we're done using the pool at this point.
         syncShutdownPools()
         do {
             try await eventLoopGroup.shutdownGracefully()
@@ -297,10 +291,21 @@ public struct DatabaseConfiguration: Sendable {
 
 // MARK: - TransactionContext
 //
-// Marked @unchecked Sendable because PostgresConnection is not Sendable but is
-// safe here: the connection is pinned to a single NIO EventLoop for the lifetime
-// of the transaction closure, and TransactionContext instances never escape that
-// scope. Remove when PostgresNIO gains Sendable conformance.
+// `TransactionContext` is marked `@unchecked Sendable` with the following safety contract:
+//
+// 1. The wrapped `PostgresConnection` is pinned to a single NIO EventLoop for
+//    the entire lifetime of the transaction.
+// 2. `TransactionContext` instances are created inside `transaction()` and are
+//    only valid within the transaction closure scope.
+// 3. All operations on the connection are serialized by the EventLoop.
+// 4. The context MUST NOT be stored or used after the transaction closure returns.
+//
+// This is safe because NIO's EventLoop guarantees single-threaded execution for
+// all operations scheduled on it. The `@unchecked Sendable` allows passing the
+// context to async closures that may resume on different threads, but all actual
+// database operations are dispatched back to the connection's EventLoop.
+//
+// Remove this workaround when PostgresNIO adds native Sendable conformance.
 
 public struct TransactionContext: @unchecked Sendable {
     let connection: PostgresConnection

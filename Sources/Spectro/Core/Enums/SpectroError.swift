@@ -5,7 +5,6 @@ public enum SpectroError: Error, Sendable {
     // MARK: - Connection
     case connectionFailed(underlying: any Error & Sendable)
     case connectionPoolExhausted
-    case connectionTimeout
     case invalidConnectionConfiguration(String)
 
     // MARK: - Query
@@ -34,6 +33,7 @@ public enum SpectroError: Error, Sendable {
 
     // MARK: - Transaction
     case transactionFailed(underlying: any Error & Sendable)
+    case transactionAndRollbackFailed(original: any Error & Sendable, rollback: any Error & Sendable)
     case transactionAlreadyStarted
     case noActiveTransaction
     case transactionDeadlock
@@ -61,8 +61,6 @@ extension SpectroError: LocalizedError {
             return "Database connection failed: \(error.localizedDescription)"
         case .connectionPoolExhausted:
             return "Database connection pool exhausted"
-        case .connectionTimeout:
-            return "Database connection timeout"
         case .invalidConnectionConfiguration(let message):
             return "Invalid connection configuration: \(message)"
 
@@ -104,6 +102,8 @@ extension SpectroError: LocalizedError {
 
         case .transactionFailed(let error):
             return "Transaction failed: \(error.localizedDescription)"
+        case .transactionAndRollbackFailed(let original, let rollback):
+            return "Transaction failed: \(original.localizedDescription). Rollback also failed: \(rollback.localizedDescription)"
         case .transactionAlreadyStarted:
             return "Transaction already started"
         case .noActiveTransaction:
@@ -136,7 +136,7 @@ extension SpectroError: LocalizedError {
 
     public var recoverySuggestion: String? {
         switch self {
-        case .connectionFailed, .connectionTimeout:
+        case .connectionFailed:
             return "Check database server status and connection parameters"
         case .connectionPoolExhausted:
             return "Increase connection pool size or reduce concurrent operations"

@@ -1,6 +1,10 @@
 import Foundation
 @preconcurrency import PostgresKit
 
+/// Typealias to disambiguate Spectro type from Spectro module.
+/// Use `SpectroClient` when `import Spectro` causes ambiguity.
+public typealias SpectroClient = Spectro
+
 /// Swift ORM for PostgreSQL with property wrapper schemas and actor-based concurrency.
 public struct Spectro {
     private let connection: DatabaseConnection

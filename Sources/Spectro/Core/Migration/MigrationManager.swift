@@ -2,9 +2,7 @@ import Foundation
 @preconcurrency import PostgresKit
 import SpectroCore
 
-// MigrationManager captures self in @Sendable closures (withTransaction).
-// Marked @unchecked Sendable because DatabaseConnection is already an actor
-// and migrationsPath / connection are immutable after init.
+// Both stored properties are immutable (`let`), so @Sendable closure capture is safe.
 public final class MigrationManager: @unchecked Sendable {
     private let connection: DatabaseConnection
     private let migrationsPath: URL
@@ -70,7 +68,6 @@ public final class MigrationManager: @unchecked Sendable {
         let files = try FileManager.default.contentsOfDirectory(
             at: migrationsPath, includingPropertiesForKeys: nil
         )
-        // Migration files are plain SQL: YYYYMMDDHHMMSS_name.sql
         return files.filter { $0.pathExtension == "sql" }
             .compactMap { url -> MigrationFile? in
                 let name = url.deletingPathExtension().lastPathComponent
@@ -104,7 +101,7 @@ public final class MigrationManager: @unchecked Sendable {
 
     public func getAppliedMigrations() async throws -> [MigrationFile] {
         let (discovered, statuses) = try await getMigrationStatuses()
-        return discovered.filter { statuses[$0.version] != .pending }
+        return discovered.filter { statuses[$0.version] == .completed }
     }
 
     public func runMigrations() async throws {
@@ -121,10 +118,11 @@ public final class MigrationManager: @unchecked Sendable {
         }
     }
 
-    public func runRollback() async throws {
+    public func runRollback(steps: Int? = nil) async throws {
         try await ensureMigrationTableExists()
         let applied = try await getAppliedMigrations()
-        for migration in applied {
+        let toRollback = Array(applied.suffix(steps ?? applied.count).reversed())
+        for migration in toRollback {
             let content = try loadMigrationContent(from: migration)
             try await withTransaction { db in
                 let stmts = try SQLStatementParser.parse(content.down)
@@ -156,7 +154,7 @@ public final class MigrationManager: @unchecked Sendable {
         let green = "\u{001B}[32m", yellow = "\u{001B}[33m"
         let red = "\u{001B}[31m", reset = "\u{001B}[0m", dim = "\u{001B}[2m"
 
-        var lines = ["\nMigration Status:", "Location: Sources/Migrations",
+        var lines = ["\nMigration Status:", "Location: \(migrationsPath.path)",
                      String(repeating: "-", count: 80),
                      "Version".padding(toLength: 40, withPad: " ", startingAt: 0)
                        + "Name".padding(toLength: 20, withPad: " ", startingAt: 0) + "Status",
@@ -172,9 +170,14 @@ public final class MigrationManager: @unchecked Sendable {
             )
         }
 
-        let pending   = migrations.filter { statuses[$0.version] == nil || statuses[$0.version] == .pending }.count
-        let completed = migrations.filter { statuses[$0.version] == .completed }.count
-        let failed    = migrations.filter { statuses[$0.version] == .failed }.count
+        var pending = 0, completed = 0, failed = 0
+        for m in migrations {
+            switch statuses[m.version] {
+            case nil, .pending: pending += 1
+            case .completed:    completed += 1
+            case .failed:       failed += 1
+            }
+        }
 
         lines += ["", "Summary:", "Total: \(migrations.count)",
                   "Pending: \(pending > 0 ? yellow : green)\(pending)\(reset)",
@@ -222,10 +225,10 @@ public final class MigrationManager: @unchecked Sendable {
     private func loadMigrationContent(from file: MigrationFile) throws -> (up: String, down: String) {
         let text = try String(contentsOf: file.filePath, encoding: .utf8)
 
-        guard let upMarkerRange = text.range(of: "-- migrate:up") else {
+        guard let upMarkerRange = text.range(of: Self.upMarker) else {
             throw MigrationError.invalidMigrationFile(file.version)
         }
-        guard let downMarkerRange = text.range(of: "-- migrate:down") else {
+        guard let downMarkerRange = text.range(of: Self.downMarker) else {
             throw MigrationError.invalidMigrationFile(file.version)
         }
 
@@ -242,27 +245,42 @@ public final class MigrationManager: @unchecked Sendable {
         return (up: upSQL, down: downSQL)
     }
 
+    private static let upMarker = "-- migrate:up"
+    private static let downMarker = "-- migrate:down"
+
     // MARK: - CLI Message Helpers
 
+    private static let migrationCreatedMessageOptions = [
+        "📜 Fresh migration dropped.", "✨ New migration, who dis?",
+        "🚀 New migration ready for takeoff!", "🎉 Migration created!"
+    ]
+
+    private static let migrationAppliedMessageOptions = [
+        "✅ Migration applied!", "🚀 Migration complete. All systems go!",
+        "🎉 Migration applied successfully.", "✨ Smooth — migration applied."
+    ]
+
+    private static let rollbackAppliedMessageOptions = [
+        "🔄 Rollback complete.", "⏪ Rolled back successfully.",
+        "🛠️ Rollback done.", "🔙 Rollback complete."
+    ]
+
     public func migrationCreatedMessages() -> String {
-        ["📜 Fresh migration dropped.", "✨ New migration, who dis?",
-         "🚀 New migration ready for takeoff!", "🎉 Migration created!"].randomElement()!
+        Self.migrationCreatedMessageOptions.randomElement()!
     }
 
     public func migrationAppliedMessages() -> String {
-        ["✅ Migration applied!", "🚀 Migration complete. All systems go!",
-         "🎉 Migration applied successfully.", "✨ Smooth — migration applied."].randomElement()!
+        Self.migrationAppliedMessageOptions.randomElement()!
     }
 
     public func rollbackAppliedMessages() -> String {
-        ["🔄 Rollback complete.", "⏪ Rolled back successfully.",
-         "🛠️ Rollback done.", "🔙 Rollback complete."].randomElement()!
+        Self.rollbackAppliedMessageOptions.randomElement()!
     }
 
     private func formatEmptyStateMessage() -> String {
         """
         Migration Status:
-        No migrations found in Sources/Migrations.
+        No migrations found in \(migrationsPath.path).
 
         Quick Start:
           spectro migrate generate <name>

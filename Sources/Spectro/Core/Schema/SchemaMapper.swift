@@ -72,7 +72,12 @@ public struct SchemaMapper {
     ) throws {
         if var mutable = instance as? MutableSchema {
             mutable.apply(values: values)
-            instance = mutable as! T
+            guard let result = mutable as? T else {
+                throw SpectroError.invalidSchema(
+                    reason: "MutableSchema.apply(values:) returned incompatible type for \(T.self)"
+                )
+            }
+            instance = result
         } else {
             throw SpectroError.notImplemented(
                 "Schema \(T.self) must implement SchemaBuilder or MutableSchema for row mapping"
