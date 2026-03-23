@@ -11,6 +11,7 @@ public protocol Repo: Sendable {
     func update<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType, changes: [String: any Sendable]) async throws -> T
     func delete<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws
     func transaction<T: Sendable>(_ work: @escaping @Sendable (any Repo) async throws -> T) async throws -> T
+    func query<T: Schema>(_ schema: T.Type) -> Query<T>
 }
 
 extension Repo {

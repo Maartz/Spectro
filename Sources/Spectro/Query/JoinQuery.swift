@@ -18,7 +18,7 @@ public struct JoinQuery<T: Schema, U: Schema>: Sendable {
     public func all() async throws -> [(T, U?)] {
         let sql = buildJoinSQL()
 
-        return try await baseQuery.connection.executeQuery(
+        return try await baseQuery.executor.executeQuery(
             sql: sql,
             parameters: baseQuery.parameters,
             resultMapper: { row in

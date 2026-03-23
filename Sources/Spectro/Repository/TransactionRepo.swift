@@ -18,6 +18,12 @@ public actor TransactionRepo: Repo {
         self.context = context
     }
 
+    // MARK: - Query
+
+    public nonisolated func query<T: Schema>(_ schema: T.Type) -> Query<T> {
+        Query(schema: schema, executor: context)
+    }
+
     // MARK: - Raw SQL
 
     public func executeRawSQL(_ sql: String) async throws {

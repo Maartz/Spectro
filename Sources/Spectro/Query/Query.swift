@@ -14,7 +14,7 @@ import SpectroCore
 /// ```
 public struct Query<T: Schema>: Sendable {
     private let schema: T.Type
-    internal let connection: DatabaseConnection
+    internal let executor: any QueryExecutor
     internal var whereClause: String = ""
     internal var parameters: [PostgresData] = []
     internal var orderFields: [OrderByClause] = []
@@ -26,9 +26,9 @@ public struct Query<T: Schema>: Sendable {
     internal var havingClause: String = ""
     internal var havingParameters: [PostgresData] = []
 
-    internal init(schema: T.Type, connection: DatabaseConnection) {
+    internal init(schema: T.Type, executor: any QueryExecutor) {
         self.schema = schema
-        self.connection = connection
+        self.executor = executor
     }
 
     // MARK: - Where Clauses
@@ -290,7 +290,7 @@ public struct Query<T: Schema>: Sendable {
 
     public func all() async throws -> [T] {
         let sql = buildSQL()
-        let rows = try await connection.executeQuery(
+        let rows = try await executor.executeQuery(
             sql: sql,
             parameters: parameters,
             resultMapper: { $0 }
@@ -315,7 +315,7 @@ public struct Query<T: Schema>: Sendable {
 
     public func count() async throws -> Int {
         let sql = buildCountSQL()
-        let results = try await connection.executeQuery(
+        let results = try await executor.executeQuery(
             sql: sql,
             parameters: parameters,
             resultMapper: { row in
@@ -347,7 +347,7 @@ public struct Query<T: Schema>: Sendable {
 
     private func aggregateExecute(function: String, column: String) async throws -> Double? {
         let sql = buildAggregateSQL(function: function, column: column)
-        let results = try await connection.executeQuery(
+        let results = try await executor.executeQuery(
             sql: sql,
             parameters: parameters,
             resultMapper: { row in
@@ -387,7 +387,7 @@ public struct Query<T: Schema>: Sendable {
         let sql = buildGroupedAggregateSQL(function: function, column: column)
         let allParameters = parameters + havingParameters
 
-        return try await connection.executeQuery(
+        return try await executor.executeQuery(
             sql: sql,
             parameters: allParameters,
             resultMapper: { row in
@@ -579,7 +579,7 @@ public struct TupleQuery<T: Schema, Result: Sendable>: Sendable {
 
     public func all() async throws -> [Result] {
         let sql = buildTupleSQL()
-        return try await baseQuery.connection.executeQuery(
+        return try await baseQuery.executor.executeQuery(
             sql: sql,
             parameters: baseQuery.parameters,
             resultMapper: { row in try mapRowToTuple(row) }

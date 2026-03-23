@@ -15,8 +15,8 @@ public actor GenericDatabaseRepo: Repo {
 
     // MARK: - Query
 
-    public func query<T: Schema>(_ schema: T.Type) -> Query<T> {
-        Query(schema: schema, connection: connection)
+    public nonisolated func query<T: Schema>(_ schema: T.Type) -> Query<T> {
+        Query(schema: schema, executor: connection)
     }
 
     // MARK: - Raw SQL

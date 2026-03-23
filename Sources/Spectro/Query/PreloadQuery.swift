@@ -88,7 +88,10 @@ public struct PreloadQuery<T: Schema>: Sendable {
     public func all() async throws -> [T] {
         let entities = try await baseQuery.all()
         guard !entities.isEmpty, !preloaders.isEmpty else { return entities }
-        let repo = GenericDatabaseRepo(connection: baseQuery.connection)
+        guard let connection = baseQuery.executor as? DatabaseConnection else {
+            return entities
+        }
+        let repo = GenericDatabaseRepo(connection: connection)
         var result = entities
         for preloader in preloaders {
             result = try await preloader(result, repo)
