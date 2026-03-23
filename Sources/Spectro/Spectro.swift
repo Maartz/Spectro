@@ -6,7 +6,7 @@ import Foundation
 public typealias SpectroClient = Spectro
 
 /// Swift ORM for PostgreSQL with property wrapper schemas and actor-based concurrency.
-public struct Spectro {
+public struct Spectro: Sendable {
     private let connection: DatabaseConnection
 
     public init(configuration: DatabaseConfiguration) throws {

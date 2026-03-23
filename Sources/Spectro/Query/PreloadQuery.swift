@@ -24,11 +24,11 @@ public struct PreloadQuery<T: Schema>: Sendable {
     internal let baseQuery: Query<T>
     // Each preloader is a @Sendable closure that takes the current entities
     // and a repo, and returns updated entities with the relationship filled in.
-    internal let preloaders: [@Sendable ([T], GenericDatabaseRepo) async throws -> [T]]
+    internal let preloaders: [@Sendable ([T], any Repo) async throws -> [T]]
 
     internal init(
         baseQuery: Query<T>,
-        preloaders: [@Sendable ([T], GenericDatabaseRepo) async throws -> [T]]
+        preloaders: [@Sendable ([T], any Repo) async throws -> [T]]
     ) {
         self.baseQuery = baseQuery
         self.preloaders = preloaders
@@ -88,10 +88,14 @@ public struct PreloadQuery<T: Schema>: Sendable {
     public func all() async throws -> [T] {
         let entities = try await baseQuery.all()
         guard !entities.isEmpty, !preloaders.isEmpty else { return entities }
-        guard let connection = baseQuery.executor as? DatabaseConnection else {
+        let repo: any Repo
+        if let connection = baseQuery.executor as? DatabaseConnection {
+            repo = GenericDatabaseRepo(connection: connection)
+        } else if let context = baseQuery.executor as? TransactionContext {
+            repo = TransactionRepo(context: context)
+        } else {
             return entities
         }
-        let repo = GenericDatabaseRepo(connection: connection)
         var result = entities
         for preloader in preloaders {
             result = try await preloader(result, repo)
@@ -127,7 +131,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
     static func hasManyPreloader<Related: Schema>(
         keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
         foreignKey: String?
-    ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
+    ) -> @Sendable ([T], any Repo) async throws -> [T] {
         let fk = foreignKey ?? conventionalForeignKey(for: T.self)
         let box = KPBox(value: keyPath)
         return { entities, repo in
@@ -140,7 +144,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
     static func singlePreloader<Related: Schema>(
         keyPath: WritableKeyPath<T, SpectroLazyRelation<Related?>>,
         foreignKey: String?
-    ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
+    ) -> @Sendable ([T], any Repo) async throws -> [T] {
         let tempInstance = T()
         let kind = tempInstance[keyPath: keyPath].relationshipInfo.kind
         let box = KPBox(value: keyPath)
@@ -168,7 +172,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
     /// Queries the junction table, then the related table, grouping results back to parents.
     static func manyToManyPreloader<Related: Schema>(
         keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>
-    ) -> @Sendable ([T], GenericDatabaseRepo) async throws -> [T] {
+    ) -> @Sendable ([T], any Repo) async throws -> [T] {
         let tempInstance = T()
         let relInfo = tempInstance[keyPath: keyPath].relationshipInfo
         let junctionTable = relInfo.junctionTable ?? ""
@@ -199,7 +203,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         junctionTable: String,
         parentFK: String,
         relatedFK: String,
-        repo: GenericDatabaseRepo
+        repo: any Repo
     ) async throws -> [T] {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
@@ -281,7 +285,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         entities: [T],
         keyPath: WritableKeyPath<T, SpectroLazyRelation<[Related]>>,
         foreignKey: String,
-        repo: GenericDatabaseRepo
+        repo: any Repo
     ) async throws -> [T] {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
@@ -324,7 +328,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         entities: [T],
         keyPath: WritableKeyPath<T, SpectroLazyRelation<Related?>>,
         foreignKey: String,
-        repo: GenericDatabaseRepo
+        repo: any Repo
     ) async throws -> [T] {
         let metadata = await SchemaRegistry.shared.register(T.self)
         guard let pkField = metadata.primaryKeyField else { return entities }
@@ -368,7 +372,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         entities: [T],
         keyPath: WritableKeyPath<T, SpectroLazyRelation<Related?>>,
         foreignKey: String,      // Column on T that holds the related entity's ID
-        repo: GenericDatabaseRepo
+        repo: any Repo
     ) async throws -> [T] {
         var seen = Set<AnyHashable>()
         var relatedParams: [PostgresData] = []
@@ -417,7 +421,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         relatedType: Related.Type,
         whereColumn: String,
         inParams: [PostgresData],
-        repo: GenericDatabaseRepo
+        repo: any Repo
     ) async throws -> [Related] {
         guard !inParams.isEmpty else { return [] }
         let placeholders = Array(repeating: "?", count: inParams.count).joined(separator: ", ")
@@ -437,7 +441,7 @@ public struct PreloadQuery<T: Schema>: Sendable {
         whereColumn: String,
         relatedColumn: String,
         inParams: [PostgresData],
-        repo: GenericDatabaseRepo
+        repo: any Repo
     ) async throws -> [(AnyHashable, AnyHashable, PostgresData)] {
         guard !inParams.isEmpty else { return [] }
         let placeholders = (1...inParams.count).map { "$\($0)" }.joined(separator: ", ")

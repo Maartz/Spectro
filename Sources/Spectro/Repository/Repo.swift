@@ -1,4 +1,5 @@
 import Foundation
+@preconcurrency import PostgresNIO
 
 /// Core repository protocol for database operations
 public protocol Repo: Sendable {
@@ -12,6 +13,8 @@ public protocol Repo: Sendable {
     func delete<T: Schema>(_ schema: T.Type, id: some PrimaryKeyType) async throws
     func transaction<T: Sendable>(_ work: @escaping @Sendable (any Repo) async throws -> T) async throws -> T
     func query<T: Schema>(_ schema: T.Type) -> Query<T>
+    func executeRawSQL(_ sql: String) async throws
+    func executeRawQuery(sql: String, parameters: [PostgresData]) async throws -> [PostgresRow]
 }
 
 extension Repo {
@@ -25,5 +28,9 @@ extension Repo {
 
     public func insertAll<T: Schema>(_ instances: [T]) async throws -> [T] {
         try await insertAll(instances, includePrimaryKey: false)
+    }
+
+    public func executeRawQuery(sql: String) async throws -> [PostgresRow] {
+        try await executeRawQuery(sql: sql, parameters: [])
     }
 }
