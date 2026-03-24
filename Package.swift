@@ -9,7 +9,7 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .library(name: "SpectroCore", targets: ["SpectroCore"]),
+        .library(name: "SpectroCommon", targets: ["SpectroCommon"]),
         .library(name: "SpectroKit", targets: ["Spectro"]),
         .executable(name: "spectro", targets: ["SpectroCLI"]),
     ],
@@ -23,7 +23,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "SpectroCore",
+            name: "SpectroCommon",
             dependencies: [],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
@@ -39,7 +39,7 @@ let package = Package(
         .target(
             name: "Spectro",
             dependencies: [
-                "SpectroCore",
+                "SpectroCommon",
                 "SpectroMacros",
                 .product(name: "PostgresKit", package: "postgres-kit"),
                 .product(name: "SQLKit", package: "sql-kit"),
@@ -52,7 +52,7 @@ let package = Package(
         .executableTarget(
             name: "SpectroCLI",
             dependencies: [
-                "SpectroCore",
+                "SpectroCommon",
                 "Spectro",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
@@ -62,7 +62,7 @@ let package = Package(
         .testTarget(
             name: "SpectroTests",
             dependencies: [
-                "SpectroCore",
+                "SpectroCommon",
                 "Spectro",
             ],
             path: "Tests/SpectroTests",

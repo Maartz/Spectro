@@ -1,6 +1,6 @@
 import Foundation
 @preconcurrency import PostgresNIO
-import SpectroCore
+import SpectroCommon
 
 /// Query that batch-loads relationships for a set of parent entities,
 /// eliminating the N+1 query problem.

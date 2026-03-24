@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import SpectroCore
+import SpectroCommon
 @testable import Spectro
 
 /// Comprehensive tests for all QueryField operators.

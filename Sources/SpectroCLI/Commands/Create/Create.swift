@@ -2,7 +2,7 @@ import ArgumentParser
 import NIOCore
 import PostgresKit
 @preconcurrency import Spectro
-import SpectroCore
+import SpectroCommon
 
 struct Create: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "create", abstract: "Create a new database")

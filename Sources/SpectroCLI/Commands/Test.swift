@@ -1,5 +1,5 @@
 import ArgumentParser
-import SpectroCore
+import SpectroCommon
 
 struct Test: AsyncParsableCommand {
     static let configuration = CommandConfiguration(

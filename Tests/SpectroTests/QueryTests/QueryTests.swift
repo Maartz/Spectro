@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import SpectroCore
+import SpectroCommon
 @testable import Spectro
 
 @Suite("Query Builder — SQL Generation", .serialized)

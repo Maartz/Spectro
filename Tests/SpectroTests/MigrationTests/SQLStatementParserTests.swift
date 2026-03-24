@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 @testable import Spectro
-@testable import SpectroCore
+@testable import SpectroCommon
 
 @Suite("SQL Statement Parser")
 struct SQLStatementParserTests {

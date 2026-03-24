@@ -1,6 +1,6 @@
 import Foundation
 import Spectro
-import SpectroCore
+import SpectroCommon
 
 public struct MigrationGenerator {
     private let fileManager: FileManager = .default

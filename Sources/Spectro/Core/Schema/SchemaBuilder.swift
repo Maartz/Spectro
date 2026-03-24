@@ -1,6 +1,6 @@
 import Foundation
 @preconcurrency import PostgresNIO
-import SpectroCore
+import SpectroCommon
 
 /// Protocol for building schema instances from database rows.
 ///

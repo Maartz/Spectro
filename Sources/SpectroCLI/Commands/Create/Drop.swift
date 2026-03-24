@@ -2,7 +2,7 @@ import ArgumentParser
 import NIOCore
 import PostgresKit
 @preconcurrency import Spectro
-import SpectroCore
+import SpectroCommon
 
 struct Drop: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "drop", abstract: "Drop an existing database")

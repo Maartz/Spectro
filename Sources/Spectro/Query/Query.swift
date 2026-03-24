@@ -1,6 +1,6 @@
 import Foundation
 import PostgresKit
-import SpectroCore
+import SpectroCommon
 
 /// Closure-based query builder for beautiful, type-safe database operations
 ///

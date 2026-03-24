@@ -682,7 +682,7 @@ Spectro is organized into four targets:
 
 | Target | Product | Role |
 |---|---|---|
-| `SpectroCore` | `SpectroCore` | Shared types (zero external deps): `Inflector`, `MigrationFile`, `MigrationRecord`, error enums, `String.snakeCase()` |
+| `SpectroCommon` | `SpectroCommon` | Shared types (zero external deps): `Inflector`, `MigrationFile`, `MigrationRecord`, error enums, `String.snakeCase()` |
 | `SpectroMacros` | Compiler plugin | `@Schema` macro implementation via SwiftSyntax |
 | `Spectro` | `SpectroKit` | Core ORM library: schemas, query builder, connection pool, migrations |
 | `SpectroCLI` | `spectro` | CLI executable (ArgumentParser-based) |

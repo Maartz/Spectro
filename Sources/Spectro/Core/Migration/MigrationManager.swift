@@ -1,6 +1,6 @@
 import Foundation
 @preconcurrency import PostgresKit
-import SpectroCore
+import SpectroCommon
 
 // Both stored properties are immutable (`let`), so @Sendable closure capture is safe.
 public final class MigrationManager: @unchecked Sendable {

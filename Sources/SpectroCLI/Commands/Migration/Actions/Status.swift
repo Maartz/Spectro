@@ -1,7 +1,7 @@
 import ArgumentParser
 import NIOCore
 import Spectro
-import SpectroCore
+import SpectroCommon
 
 struct Status: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
