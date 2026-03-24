@@ -533,6 +533,7 @@ public struct Query<T: Schema>: Sendable {
     }
 
     private func extractRelationshipName<Related>(from keyPath: KeyPath<T, SpectroLazyRelation<Related>>) -> String {
+        if let name = T._keyPathToColumn[keyPath] { return name }
         if let propertyName = keyPath.propertyName { return propertyName }
         let keyPathString = String(describing: keyPath)
         if let match = keyPathString.range(of: #"\.\$?([a-zA-Z_][a-zA-Z0-9_]*)>*$"#, options: .regularExpression) {
@@ -675,6 +676,7 @@ public struct QueryBuilder<T: Schema>: Sendable {
     }
 
     private func extractFieldName<V>(from keyPath: KeyPath<T, V>) -> String {
+        if let name = T._keyPathToColumn[keyPath] { return name }
         let keyPathString = "\(keyPath)"
         return keyPathString.components(separatedBy: ".").last ?? keyPathString
     }
@@ -990,7 +992,8 @@ extension JoinField where V: Comparable {
 
 // MARK: - KeyPath Field Name Extraction
 
-private func extractFieldName<T: Schema, V>(from keyPath: KeyPath<T, V>, schema: T.Type) -> String {
+internal func extractFieldName<T: Schema, V>(from keyPath: KeyPath<T, V>, schema: T.Type) -> String {
+    if let name = T._keyPathToColumn[keyPath] { return name }
     let keyPathString = "\(keyPath)"
     return keyPathString.components(separatedBy: ".").last ?? keyPathString
 }

@@ -125,11 +125,6 @@ public struct JoinQueryBuilder<T: Schema, U: Schema>: Sendable {
     }
 }
 
-private func extractFieldName<T: Schema, V>(from keyPath: KeyPath<T, V>, schema: T.Type) -> String {
-    let keyPathString = "\(keyPath)"
-    return keyPathString.components(separatedBy: ".").last ?? keyPathString
-}
-
 // MARK: - Query Extensions for JOIN execution
 
 extension Query {

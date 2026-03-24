@@ -70,6 +70,6 @@
 ///
 /// If you provide your own `tableName` or `init()` in the struct body, the macro
 /// skips generating those members.
-@attached(member, names: named(tableName), named(init))
+@attached(member, names: named(tableName), named(init), named(_keyPathToColumn))
 @attached(extension, conformances: Schema, SchemaBuilder, names: named(build))
 public macro Schema(_ tableName: String) = #externalMacro(module: "SpectroMacros", type: "SchemaMacro")

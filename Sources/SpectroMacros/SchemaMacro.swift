@@ -314,6 +314,25 @@ extension SchemaMacro: MemberMacro {
             decls.append(convInit)
         }
 
+        // --- static let _keyPathToColumn ---
+        let typeName = structDecl.name.text
+        var entries: [String] = []
+        for prop in properties {
+            switch prop.wrapper {
+            case .id, .column, .timestamp, .foreignKey:
+                entries.append("\\\(typeName).\(prop.name): \"\(prop.name)\"")
+            case .hasMany, .hasOne, .belongsTo, .manyToMany:
+                entries.append("\\\(typeName).$\(prop.name): \"\(prop.name)\"")
+            }
+        }
+        let entriesStr = entries.joined(separator: ",\n            ")
+        let keyPathDecl: DeclSyntax = """
+        nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+                \(raw: entriesStr)
+            ]
+        """
+        decls.append(keyPathDecl)
+
         return decls
     }
 }

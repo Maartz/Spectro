@@ -6,6 +6,15 @@ import Foundation
 struct TestUser: Schema, SchemaBuilder {
     static let tableName = "test_users"
 
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \TestUser.id: "id",
+        \TestUser.name: "name",
+        \TestUser.email: "email",
+        \TestUser.age: "age",
+        \TestUser.isActive: "isActive",
+        \TestUser.createdAt: "createdAt",
+    ]
+
     @ID var id: UUID
     @Column var name: String
     @Column var email: String
@@ -45,6 +54,13 @@ struct TestUser: Schema, SchemaBuilder {
 
 struct TestUserWithBio: Schema, SchemaBuilder {
     static let tableName = "test_users_bio"
+
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \TestUserWithBio.id: "id",
+        \TestUserWithBio.name: "name",
+        \TestUserWithBio.email: "email",
+        \TestUserWithBio.bio: "bio",
+    ]
 
     @ID var id: UUID
     @Column var name: String
@@ -92,6 +108,12 @@ struct TestMacroUser {
 struct TestColumnOverride: Schema, SchemaBuilder {
     static let tableName = "test_column_overrides"
 
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \TestColumnOverride.id: "id",
+        \TestColumnOverride.name: "name",
+        \TestColumnOverride.email: "email",
+    ]
+
     @ID var id: UUID
     @Column("display_name") var name: String = ""
     @Column var email: String = ""
@@ -112,6 +134,12 @@ struct TestColumnOverride: Schema, SchemaBuilder {
 /// Schema with a non-optional Column<UUID> to verify it's not dropped by SchemaRegistry
 struct TestWithUuidColumn: Schema, SchemaBuilder {
     static let tableName = "test_with_uuid_columns"
+
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \TestWithUuidColumn.id: "id",
+        \TestWithUuidColumn.externalId: "externalId",
+        \TestWithUuidColumn.name: "name",
+    ]
 
     @ID var id: UUID
     @Column var externalId: UUID
@@ -137,6 +165,11 @@ struct TestWithUuidColumn: Schema, SchemaBuilder {
 /// Schema with an Int (SERIAL) primary key for testing non-UUID PK support.
 struct IntPKItem: Schema, SchemaBuilder {
     static let tableName = "int_pk_items"
+
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \IntPKItem.id: "id",
+        \IntPKItem.name: "name",
+    ]
 
     @ID var id: Int
     @Column var name: String
@@ -168,6 +201,11 @@ struct IntPKItem: Schema, SchemaBuilder {
 struct StringPKItem: Schema, SchemaBuilder {
     static let tableName = "string_pk_items"
 
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \StringPKItem.id: "id",
+        \StringPKItem.name: "name",
+    ]
+
     @ID var id: String
     @Column var name: String
 
@@ -192,6 +230,12 @@ struct StringPKItem: Schema, SchemaBuilder {
 /// Schema with an Int foreign key for testing non-UUID FK support.
 struct IntFKChild: Schema, SchemaBuilder {
     static let tableName = "int_fk_children"
+
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \IntFKChild.id: "id",
+        \IntFKChild.label: "label",
+        \IntFKChild.parentId: "parentId",
+    ]
 
     @ID var id: UUID
     @Column var label: String
@@ -264,6 +308,14 @@ struct RelUserTag {
 
 struct TestPost: Schema, SchemaBuilder {
     static let tableName = "test_posts"
+
+    nonisolated(unsafe) static let _keyPathToColumn: [AnyKeyPath: String] = [
+        \TestPost.id: "id",
+        \TestPost.title: "title",
+        \TestPost.body: "body",
+        \TestPost.userId: "userId",
+        \TestPost.createdAt: "createdAt",
+    ]
 
     @ID var id: UUID
     @Column var title: String
