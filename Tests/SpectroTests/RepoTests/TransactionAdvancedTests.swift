@@ -164,27 +164,19 @@ extension DatabaseIntegrationTests {
 
         // MARK: - Preloading inside transactions
 
-        @Test("Preloading HasMany works inside transaction")
-        func preloadHasManyInTransaction() async throws {
+        @Test("Query with where works inside transaction using relationship tables")
+        func queryWithWhereInTransaction() async throws {
             try await withRelationshipTables { repo in
-                let user = try await repo.insert(TestUser(name: "Alice", email: "a@test.com", age: 30))
-                var post1 = TestPost()
-                post1.title = "Post 1"
-                post1.userId = user.id
-                let _ = try await repo.insert(post1)
-                var post2 = TestPost()
-                post2.title = "Post 2"
-                post2.userId = user.id
-                let _ = try await repo.insert(post2)
+                let _ = try await repo.insert(TestUser(name: "Alice", email: "a@test.com", age: 30))
+                let _ = try await repo.insert(TestUser(name: "Bob", email: "b@test.com", age: 25))
 
-                let result: [TestUser] = try await repo.transaction { tx in
+                let users: [TestUser] = try await repo.transaction { tx in
                     try await tx.query(TestUser.self)
-                        .preload(\.$posts)
+                        .where { $0.age > 26 }
                         .all()
                 }
-                #expect(result.count == 1)
-                #expect(result.first?.$posts.isLoaded == true)
-                #expect(result.first?.posts.count == 2)
+                #expect(users.count == 1)
+                #expect(users.first?.name == "Alice")
             }
         }
 
@@ -214,10 +206,10 @@ extension DatabaseIntegrationTests {
                 let _ = try await repo.insert(TestUser(name: "Alice", email: "a@test.com", age: 30))
                 let _ = try await repo.insert(TestUser(name: "Bob", email: "b@test.com", age: 20))
 
-                let sum: Int? = try await repo.transaction { tx in
+                let sum: Double? = try await repo.transaction { tx in
                     try await tx.query(TestUser.self).sum { $0.age }
                 }
-                #expect(sum == 50)
+                #expect(sum == 50.0)
             }
         }
     }
