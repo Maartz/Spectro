@@ -80,22 +80,22 @@ struct RelationshipTests {
 
     // MARK: - Property Wrappers
 
-    @Test("HasMany wrappedValue returns empty array when not loaded")
+    @Test("HasMany is not loaded by default")
     func hasManyDefaultValue() {
         let wrapper = HasMany<TestPost>()
-        #expect(wrapper.wrappedValue.isEmpty)
+        #expect(!wrapper.projectedValue.isLoaded)
     }
 
-    @Test("HasOne wrappedValue returns nil when not loaded")
+    @Test("HasOne is not loaded by default")
     func hasOneDefaultValue() {
         let wrapper = HasOne<TestPost>()
-        #expect(wrapper.wrappedValue == nil)
+        #expect(!wrapper.projectedValue.isLoaded)
     }
 
-    @Test("BelongsTo wrappedValue returns nil when not loaded")
+    @Test("BelongsTo is not loaded by default")
     func belongsToDefaultValue() {
         let wrapper = BelongsTo<TestUser>()
-        #expect(wrapper.wrappedValue == nil)
+        #expect(!wrapper.projectedValue.isLoaded)
     }
 
     // MARK: - Foreign Key Override
