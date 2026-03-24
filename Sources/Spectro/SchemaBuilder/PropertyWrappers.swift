@@ -1,6 +1,18 @@
 import Foundation
 import PostgresKit
 
+// MARK: - Relationship Load Assertion
+//
+// Like Ecto's %Ecto.Association.NotLoaded{}, accessing a relationship that
+// hasn't been preloaded is almost always a bug. In debug builds, we assert
+// to catch this early. In release, we fall back to [] / nil silently.
+
+@inline(__always)
+func assertRelationLoaded<T>(_ relation: SpectroLazyRelation<T>, kind: String, type: Any.Type) {
+    assert(relation.isLoaded,
+        "\(kind)<\(type)> accessed before loading. Use .preload(\\.$relation) in your query, or check $relation.isLoaded first.")
+}
+
 // MARK: - Column Name Override Protocol
 
 /// Protocol for property wrappers that support column name overrides.
@@ -77,9 +89,14 @@ public struct HasMany<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<[T]>
     public let foreignKey: String?
 
-    /// The loaded array, or empty if the relationship has not been loaded.
+    /// The loaded array. Triggers a debug assertion if accessed before preloading,
+    /// similar to Ecto's `%Ecto.Association.NotLoaded{}`. In release builds,
+    /// returns `[]` as a safe fallback. Use `$relation.isLoaded` to check first.
     public var wrappedValue: [T] {
-        get { lazyRelation.value ?? [] }
+        get {
+            assertRelationLoaded(lazyRelation, kind: "HasMany", type: T.self)
+            return lazyRelation.value ?? []
+        }
         set { lazyRelation = lazyRelation.withLoaded(newValue) }
     }
 
@@ -123,8 +140,13 @@ public struct HasOne<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<T?>
     public let foreignKey: String?
 
+    /// The loaded value. Triggers a debug assertion if accessed before preloading.
+    /// In release builds, returns `nil` as a safe fallback.
     public var wrappedValue: T? {
-        get { lazyRelation.value ?? nil }
+        get {
+            assertRelationLoaded(lazyRelation, kind: "HasOne", type: T.self)
+            return lazyRelation.value ?? nil
+        }
         set { lazyRelation = lazyRelation.withLoaded(newValue) }
     }
 
@@ -164,8 +186,13 @@ public struct BelongsTo<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<T?>
     public let foreignKey: String?
 
+    /// The loaded value. Triggers a debug assertion if accessed before preloading.
+    /// In release builds, returns `nil` as a safe fallback.
     public var wrappedValue: T? {
-        get { lazyRelation.value ?? nil }
+        get {
+            assertRelationLoaded(lazyRelation, kind: "BelongsTo", type: T.self)
+            return lazyRelation.value ?? nil
+        }
         set { lazyRelation = lazyRelation.withLoaded(newValue) }
     }
 
@@ -204,9 +231,13 @@ public struct BelongsTo<T: Schema>: Sendable {
 public struct ManyToMany<T: Schema>: Sendable {
     private var lazyRelation: SpectroLazyRelation<[T]>
 
-    /// The loaded array, or empty if the relationship has not been loaded.
+    /// The loaded array. Triggers a debug assertion if accessed before preloading.
+    /// In release builds, returns `[]` as a safe fallback.
     public var wrappedValue: [T] {
-        get { lazyRelation.value ?? [] }
+        get {
+            assertRelationLoaded(lazyRelation, kind: "ManyToMany", type: T.self)
+            return lazyRelation.value ?? []
+        }
         set { lazyRelation = lazyRelation.withLoaded(newValue) }
     }
 
