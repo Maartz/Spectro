@@ -51,7 +51,7 @@ A Swift ORM for PostgreSQL, inspired by Elixir's Ecto. Property-wrapper schemas,
 Add to your `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/Maartz/Spectro.git", from: "0.9.1")
+.package(url: "https://github.com/Maartz/Spectro.git", from: "1.0.0")
 ```
 
 Then add `"SpectroKit"` to your target's dependencies:
@@ -76,7 +76,7 @@ mint install Maartz/Spectro
 Pin a version in your `Mintfile`:
 
 ```
-Maartz/Spectro@0.9.1
+Maartz/Spectro@1.0.0
 ```
 
 ## Quick Start
