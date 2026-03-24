@@ -1,22 +1,37 @@
 import ArgumentParser
 import NIOCore
 import PostgresKit
-import Spectro
+@preconcurrency import Spectro
 import SpectroCore
 
 struct Drop: AsyncParsableCommand {
     static let configuration = CommandConfiguration(commandName: "drop", abstract: "Drop an existing database")
 
+    @Argument(help: "Name of the database to drop")
+    var name: String?
+
     @Option(name: .long, help: "Database Username") var username: String?
     @Option(name: .long, help: "Database Password") var password: String?
-    @Option(name: .long, help: "Database Name")     var database: String?
+    @Option(name: .long, help: "Database Name (alternative to positional argument)") var database: String?
 
     func run() async throws {
+        let dbName = name ?? database
+        guard let dbName, !dbName.isEmpty else {
+            print("Error: Database name is required.")
+            print("Usage: spectro database drop <name>")
+            print("   or: spectro database drop --database <name>")
+            throw ExitCode.validationFailure
+        }
+
+        guard dbName != "postgres" else {
+            print("Error: Refusing to drop 'postgres' — that's the system database.")
+            throw ExitCode.validationFailure
+        }
+
         try await ConfigurationManager.shared.loadEnvFile()
         var overrides: [String: String] = [:]
         if let v = username { overrides["username"] = v }
         if let v = password { overrides["password"] = v }
-        if let v = database { overrides["database"] = v }
 
         let config = await ConfigurationManager.shared.getDatabaseConfig(overrides: overrides)
         let spectro = try Spectro(
@@ -24,19 +39,26 @@ struct Drop: AsyncParsableCommand {
             username: config.username, password: config.password, database: "postgres"
         )
 
-        let databaseName = config.database
         let repo = spectro.repository()
         do {
-            try await repo.executeRawSQL("DROP DATABASE \"\(databaseName)\"")
-            print("Database '\(databaseName)' dropped successfully")
+            // Disconnect other sessions before dropping
+            try await repo.executeRawSQL("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = '\(dbName)' AND pid <> pg_backend_pid()
+            """)
+            try await repo.executeRawSQL("DROP DATABASE \"\(dbName)\"")
+            print("Database '\(dbName)' dropped successfully.")
         } catch {
             await spectro.shutdown()
-            if let psqlError = error as? PSQLError,
-               let message = psqlError.serverInfo?[.message],
-               message.contains("does not exist") {
-                throw DatabaseError.doesNotExist(databaseName)
+            let message = String(describing: error)
+            if message.contains("does not exist") {
+                print("Database '\(dbName)' does not exist.")
+                return
             }
-            throw DatabaseError.dropFailed(String(reflecting: error))
+            print("Error: Could not drop database '\(dbName)'.")
+            print("Reason: \(extractPGMessage(from: error))")
+            throw ExitCode.failure
         }
         await spectro.shutdown()
     }
