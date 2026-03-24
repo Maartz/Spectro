@@ -28,6 +28,8 @@ struct Drop: AsyncParsableCommand {
             throw ExitCode.validationFailure
         }
 
+        try validateDatabaseIdentifier(dbName)
+
         try await ConfigurationManager.shared.loadEnvFile()
         var overrides: [String: String] = [:]
         if let v = username { overrides["username"] = v }
@@ -41,13 +43,12 @@ struct Drop: AsyncParsableCommand {
 
         let repo = spectro.repository()
         do {
-            // Disconnect other sessions before dropping
-            try await repo.executeRawSQL("""
-                SELECT pg_terminate_backend(pid)
-                FROM pg_stat_activity
-                WHERE datname = '\(dbName)' AND pid <> pg_backend_pid()
-            """)
-            try await repo.executeRawSQL("DROP DATABASE \"\(dbName)\"")
+            // Disconnect other sessions before dropping (parameterized)
+            let _ = try await repo.executeRawQuery(
+                sql: "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+                parameters: [PostgresData(string: dbName)]
+            )
+            try await repo.executeRawSQL("DROP DATABASE \"\(escapeIdentifier(dbName))\"")
             print("Database '\(dbName)' dropped successfully.")
         } catch {
             await spectro.shutdown()

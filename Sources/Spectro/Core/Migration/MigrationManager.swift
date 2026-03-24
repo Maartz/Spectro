@@ -7,10 +7,11 @@ public final class MigrationManager: @unchecked Sendable {
     private let connection: DatabaseConnection
     private let migrationsPath: URL
 
-    public init(connection: DatabaseConnection) {
+    public init(connection: DatabaseConnection, migrationsPath: URL? = nil) {
         self.connection = connection
         let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        self.migrationsPath = currentDirectory.appendingPathComponent("Sources/Migrations")
+        self.migrationsPath = migrationsPath
+            ?? currentDirectory.appendingPathComponent("Sources/Migrations")
     }
 
     public func ensureMigrationTableExists() async throws {

@@ -28,6 +28,8 @@ struct Create: AsyncParsableCommand {
             throw ExitCode.validationFailure
         }
 
+        try validateDatabaseIdentifier(dbName)
+
         try await ConfigurationManager.shared.loadEnvFile()
         var overrides: [String: String] = [:]
         if let v = username { overrides["username"] = v }
@@ -41,7 +43,7 @@ struct Create: AsyncParsableCommand {
 
         let repo = spectro.repository()
         do {
-            try await repo.executeRawSQL("CREATE DATABASE \"\(dbName)\"")
+            try await repo.executeRawSQL("CREATE DATABASE \"\(escapeIdentifier(dbName))\"")
             print("Database '\(dbName)' created successfully.")
         } catch {
             await spectro.shutdown()

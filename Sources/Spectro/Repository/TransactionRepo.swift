@@ -200,8 +200,13 @@ public actor TransactionRepo: Repo {
         var values: [PostgresData] = []
         var paramIndex = 1
 
+        let knownColumns = Set(metadata.fields.map { $0.databaseName })
         for (column, value) in changes {
-            setClause.append("\(column.snakeCase().quoted) = $\(paramIndex)")
+            let dbColumn = column.snakeCase()
+            guard knownColumns.contains(dbColumn) else {
+                throw SpectroError.invalidSchema(reason: "Unknown column '\(column)' on \(schema)")
+            }
+            setClause.append("\(dbColumn.quoted) = $\(paramIndex)")
             values.append(try SchemaMapper.convertToPostgresData(value))
             paramIndex += 1
         }

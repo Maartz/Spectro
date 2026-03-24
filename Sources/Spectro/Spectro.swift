@@ -44,8 +44,8 @@ public struct Spectro: Sendable {
         try await connection.testConnection()
     }
 
-    public func migrationManager() -> MigrationManager {
-        MigrationManager(connection: connection)
+    public func migrationManager(migrationsPath: URL? = nil) -> MigrationManager {
+        MigrationManager(connection: connection, migrationsPath: migrationsPath)
     }
 
     public func shutdown() async {
